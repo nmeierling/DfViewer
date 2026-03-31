@@ -1,0 +1,12 @@
+server:
+  port: 8080
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 2GB
+      max-request-size: 2GB
+
+dfviewer:
+  cache-dir: ${DFVIEWER_CACHE_DIR:${user.home}/.dfviewer}
+  duckdb-path: ${DFVIEWER_CACHE_DIR:${user.home}/.dfviewer}/cache.duckdb
