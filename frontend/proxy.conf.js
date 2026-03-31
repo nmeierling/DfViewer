@@ -1,0 +1,14 @@
+module.exports = {
+  "/api": {
+    target: "http://localhost:8080",
+    secure: false,
+    changeOrigin: true
+  },
+  "/ws": {
+    target: "ws://localhost:8080",
+    secure: false,
+    changeOrigin: true,
+    ws: true,
+    logLevel: "debug"
+  }
+};

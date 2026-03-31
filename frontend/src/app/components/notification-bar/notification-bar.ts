@@ -1,101 +1,61 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Store } from '@ngrx/store';
 import { ProgressBarModule } from 'primeng/progressbar';
-import { ButtonModule } from 'primeng/button';
-import { NotificationService, Notification } from '../../services/notification.service';
+import { selectNotification } from '../../store/s3.selectors';
 
 @Component({
   selector: 'app-notification-bar',
   standalone: true,
-  imports: [CommonModule, ProgressBarModule, ButtonModule],
+  imports: [CommonModule, ProgressBarModule],
   template: `
-    <div class="notification-container">
-      @for (n of notifications; track n.id) {
-        <div class="notification-item" [class]="'notification-' + n.type">
-          <div class="notification-content">
-            <div class="notification-text">
-              <span class="notification-message">{{ n.message }}</span>
-              @if (n.detail) {
-                <span class="notification-detail">{{ n.detail }}</span>
-              }
-            </div>
-            <p-button icon="pi pi-times" [rounded]="true" [text]="true" size="small" (onClick)="dismiss(n.id)" />
-          </div>
-          @if (n.progress) {
+    @if (notification$ | async; as n) {
+      <div class="notification-bar" [class]="'notif-' + n.type">
+        <i [class]="n.type === 'info' ? 'pi pi-spin pi-spinner' : n.type === 'success' ? 'pi pi-check-circle' : 'pi pi-exclamation-circle'"></i>
+        <span class="notif-msg">{{ n.message }}</span>
+        @if (n.detail) {
+          <span class="notif-detail">{{ n.detail }}</span>
+        }
+        @if (n.progress) {
+          @if (n.progress.mode === 'determinate') {
+            <span class="notif-pct">{{ n.progress.value }}%</span>
+          }
+          <div class="notif-progress">
             <p-progressBar
               [mode]="n.progress.mode"
               [value]="n.progress.value ?? 0"
               [showValue]="false"
-              [style]="{ height: '4px' }"
+              [style]="{ height: '3px', width: '80px' }"
             />
-          }
-        </div>
-      }
-    </div>
+          </div>
+        }
+      </div>
+    }
   `,
   styles: [`
-    .notification-container {
+    .notification-bar {
       position: fixed;
-      top: 1rem;
-      right: 1rem;
+      top: 0.75rem;
+      right: 0.75rem;
       z-index: 9999;
       display: flex;
-      flex-direction: column;
+      align-items: center;
       gap: 0.5rem;
-      max-width: 400px;
-      min-width: 320px;
-    }
-    .notification-item {
+      padding: 0.5rem 1rem;
       border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      animation: slideIn 0.2s ease-out;
+      font-size: 0.85rem;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
-    .notification-content {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      padding: 0.75rem 1rem;
-      gap: 0.5rem;
-    }
-    .notification-text {
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
-      flex: 1;
-      min-width: 0;
-    }
-    .notification-message { font-weight: 600; font-size: 0.9rem; }
-    .notification-detail { font-size: 0.8rem; opacity: 0.85; }
-    .notification-info {
-      background: var(--p-surface-card);
-      border: 1px solid var(--p-primary-color);
-      color: var(--p-text-color);
-    }
-    .notification-success {
-      background: var(--p-surface-card);
-      border: 1px solid var(--p-green-500);
-      color: var(--p-text-color);
-    }
-    .notification-error {
-      background: var(--p-surface-card);
-      border: 1px solid var(--p-red-500);
-      color: var(--p-text-color);
-    }
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
+    .notif-info { background: var(--p-blue-50); color: var(--p-blue-700); border: 1px solid var(--p-blue-200); }
+    .notif-success { background: var(--p-green-50); color: var(--p-green-700); border: 1px solid var(--p-green-200); }
+    .notif-error { background: var(--p-red-50); color: var(--p-red-700); border: 1px solid var(--p-red-200); }
+    .notif-msg { font-weight: 600; }
+    .notif-detail { opacity: 0.8; }
+    .notif-pct { font-weight: 600; }
+    .notif-progress { display: flex; align-items: center; }
   `]
 })
 export class NotificationBarComponent {
-  notifications: Notification[] = [];
-
-  constructor(private notificationService: NotificationService) {
-    this.notificationService.notifications.subscribe(n => this.notifications = n);
-  }
-
-  dismiss(id: string) {
-    this.notificationService.dismiss(id);
-  }
+  notification$ = inject(Store).select(selectNotification);
 }

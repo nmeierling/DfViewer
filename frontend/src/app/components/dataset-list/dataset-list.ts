@@ -1,12 +1,14 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
+import { Store } from '@ngrx/store';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService } from 'primeng/api';
-import { ApiService } from '../../services/api.service';
+import { DatasetActions } from '../../store/dataset.actions';
+import { selectDatasets, selectListLoading } from '../../store/dataset.selectors';
 import { Dataset } from '../../models/dataset.model';
 
 @Component({
@@ -20,7 +22,7 @@ import { Dataset } from '../../models/dataset.model';
         <h2>Datasets</h2>
         <p-button label="Import from S3" icon="pi pi-cloud-download" (onClick)="goToS3()" />
       </div>
-      <p-table [value]="datasets" [loading]="loading" styleClass="p-datatable-sm p-datatable-striped">
+      <p-table [value]="(datasets$ | async) ?? []" [loading]="(loading$ | async) ?? false" styleClass="p-datatable-sm p-datatable-striped">
         <ng-template #header>
           <tr>
             <th>ID</th>
@@ -67,25 +69,15 @@ import { Dataset } from '../../models/dataset.model';
   `]
 })
 export class DatasetListComponent implements OnInit {
-  datasets: Dataset[] = [];
-  loading = false;
+  private store = inject(Store);
+  private router = inject(Router);
+  private confirmationService = inject(ConfirmationService);
 
-  constructor(
-    private api: ApiService,
-    private router: Router,
-    private confirmationService: ConfirmationService
-  ) {}
+  datasets$ = this.store.select(selectDatasets);
+  loading$ = this.store.select(selectListLoading);
 
   ngOnInit() {
-    this.loadDatasets();
-  }
-
-  loadDatasets() {
-    this.loading = true;
-    this.api.listDatasets().subscribe({
-      next: (data) => { this.datasets = data; this.loading = false; },
-      error: () => { this.loading = false; }
-    });
+    this.store.dispatch(DatasetActions.loadDatasets());
   }
 
   openDataset(ds: Dataset) {
@@ -100,7 +92,7 @@ export class DatasetListComponent implements OnInit {
     this.confirmationService.confirm({
       message: `Delete dataset "${ds.name}"?`,
       accept: () => {
-        this.api.deleteDataset(ds.id).subscribe(() => this.loadDatasets());
+        this.store.dispatch(DatasetActions.deleteDataset({ id: ds.id }));
       }
     });
   }

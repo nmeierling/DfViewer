@@ -150,9 +150,10 @@ class DuckDbService(
             stmt.setString(4, sourceType.name)
             stmt.setString(5, entityPath)
             stmt.setString(6, runTimestamp)
-            stmt.setObject(7, Instant.now())
+            stmt.setTimestamp(7, java.sql.Timestamp.from(Instant.now()))
             stmt.setLong(8, rowCount)
             stmt.setString(9, schemaJson)
+            stmt.executeUpdate()
         }
     }
 
@@ -246,7 +247,7 @@ class DuckDbService(
                 sourceType = SourceType.valueOf(getString("source_type")),
                 entityPath = getString("entity_path"),
                 runTimestamp = getString("run_timestamp"),
-                importedAt = getObject("imported_at", java.time.OffsetDateTime::class.java)?.toInstant()
+                importedAt = getTimestamp("imported_at")?.toInstant()
                     ?: Instant.now(),
                 rowCount = getLong("row_count"),
                 schemaJson = getString("schema_json")
