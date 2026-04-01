@@ -14,6 +14,8 @@ import { s3Reducer } from './store/s3.reducer';
 import { S3Effects } from './store/s3.effects';
 import { datasetReducer } from './store/dataset.reducer';
 import { DatasetEffects } from './store/dataset.effects';
+import { comparisonReducer } from './store/comparison.reducer';
+import { ComparisonEffects } from './store/comparison.effects';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -29,8 +31,8 @@ export const appConfig: ApplicationConfig = {
         }
       }
     }),
-    provideStore({ s3: s3Reducer, dataset: datasetReducer }),
-    provideEffects([S3Effects, DatasetEffects]),
+    provideStore({ s3: s3Reducer, dataset: datasetReducer, comparison: comparisonReducer }),
+    provideEffects([S3Effects, DatasetEffects, ComparisonEffects]),
     provideStoreDevtools({ maxAge: 50, logOnly: !isDevMode() }),
   ]
 };

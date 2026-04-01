@@ -108,6 +108,43 @@ class DuckDbService(
     }
 
     @Synchronized
+    fun executeSQLSync(sql: String) {
+        connection.createStatement().use { it.execute(sql) }
+    }
+
+    @Synchronized
+    fun countTable(tableName: String): Long {
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery("SELECT COUNT(*) FROM $tableName")
+            rs.next()
+            return rs.getLong(1)
+        }
+    }
+
+    @Synchronized
+    fun queryView(viewName: String, page: Int, pageSize: Int): DataPage {
+        val offset = page * pageSize
+        val totalRows = countTable(viewName)
+
+        val rows = mutableListOf<Map<String, Any?>>()
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery("SELECT * FROM $viewName LIMIT $pageSize OFFSET $offset")
+            val meta = rs.metaData
+            val colCount = meta.columnCount
+            while (rs.next()) {
+                val row = linkedMapOf<String, Any?>()
+                for (i in 1..colCount) {
+                    row[meta.getColumnName(i)] = rs.getObject(i)
+                }
+                rows.add(row)
+            }
+        }
+
+        val totalPages = if (totalRows == 0L) 1 else ((totalRows + pageSize - 1) / pageSize).toInt()
+        return DataPage(data = rows, totalRows = totalRows, page = page, pageSize = pageSize, totalPages = totalPages)
+    }
+
+    @Synchronized
     fun getNextId(): Long {
         connection.createStatement().use { stmt ->
             val rs = stmt.executeQuery("SELECT nextval('dataset_id_seq')")

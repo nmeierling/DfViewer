@@ -39,11 +39,33 @@ export class S3Effects {
     ))
   ));
 
+  loadScanCache$ = createEffect(() => this.actions$.pipe(
+    ofType(S3Actions.loadScanCache),
+    switchMap(() => this.s3Service.getScanCache().pipe(
+      map(entries => S3Actions.scanCacheLoaded({ entries })),
+      catchError(() => of(S3Actions.scanCacheLoaded({ entries: [] })))
+    ))
+  ));
+
+  /** Refresh cache list after scan completes */
+  refreshCacheAfterScan$ = createEffect(() => this.actions$.pipe(
+    ofType(S3Actions.scanResultLoaded),
+    map(() => S3Actions.loadScanCache())
+  ));
+
+  loadCachedResult$ = createEffect(() => this.actions$.pipe(
+    ofType(S3Actions.loadCachedResult),
+    switchMap(({ uri }) => this.s3Service.getCachedResult(uri).pipe(
+      map(result => S3Actions.scanResultLoaded({ result })),
+      catchError(() => of(S3Actions.scanError({ error: 'Failed to load cached result' })))
+    ))
+  ));
+
   /** Start scan: WS progress events, then "complete" signal (no large payload) */
   startScan$ = createEffect(() => this.actions$.pipe(
     ofType(S3Actions.startScan),
     tap(({ uri }) => localStorage.setItem('dfviewer_s3_scan_uri', uri)),
-    switchMap(({ uri, maxObjects }) => this.s3Service.scan(uri, maxObjects).pipe(
+    switchMap(({ uri, maxObjects, forceRescan }) => this.s3Service.scan(uri, maxObjects, forceRescan ?? false).pipe(
       map(event => {
         if (event.type === 'progress') return S3Actions.scanProgress({ progress: event.data });
         if (event.type === 'complete') return S3Actions.scanWSComplete({ summary: event.data, taskId: event.taskId });

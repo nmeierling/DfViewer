@@ -35,18 +35,28 @@ data class DataPage(
     val totalPages: Int
 )
 
-data class ComparisonResult(
-    val added: DataPage,
-    val removed: DataPage,
-    val changed: DataPage,
-    val summary: ComparisonSummary
+data class CompareRequest(
+    val leftDatasetId: Long,
+    val rightDatasetId: Long,
+    val keyColumns: List<String>,
+    val ignoreColumns: List<String> = emptyList()
 )
 
 data class ComparisonSummary(
+    val leftDatasetId: Long,
+    val rightDatasetId: Long,
+    val leftName: String,
+    val rightName: String,
+    val keyColumns: List<String>,
     val totalLeft: Long,
     val totalRight: Long,
     val addedCount: Long,
     val removedCount: Long,
     val changedCount: Long,
     val unchangedCount: Long
+)
+
+data class ChangedRow(
+    val key: Map<String, Any?>,
+    val changes: Map<String, Pair<Any?, Any?>>  // column -> (left, right)
 )

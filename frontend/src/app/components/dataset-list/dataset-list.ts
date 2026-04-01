@@ -26,6 +26,7 @@ import { Dataset } from '../../models/dataset.model';
           }
         }
         <div class="spacer"></div>
+        <p-button label="Compare" icon="pi pi-arrows-h" [outlined]="true" (onClick)="goToCompare()" />
         <p-button label="Import from S3" icon="pi pi-cloud-download" (onClick)="goToS3()" />
       </div>
       <p-table [value]="(datasets$ | async) ?? []" [loading]="(loading$ | async) ?? false" styleClass="p-datatable-sm p-datatable-striped">
@@ -94,6 +95,10 @@ export class DatasetListComponent implements OnInit {
 
   openDataset(ds: Dataset) {
     this.router.navigate(['/datasets', ds.id]);
+  }
+
+  goToCompare() {
+    this.router.navigate(['/compare']);
   }
 
   goToS3() {

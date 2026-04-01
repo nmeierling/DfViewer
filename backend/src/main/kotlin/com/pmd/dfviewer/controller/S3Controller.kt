@@ -7,6 +7,8 @@ import com.pmd.dfviewer.model.S3ScanResult
 import com.pmd.dfviewer.service.S3CredentialService
 import com.pmd.dfviewer.service.S3ImportService
 import com.pmd.dfviewer.service.S3ScannerService
+import com.pmd.dfviewer.service.ScanCacheEntry
+import com.pmd.dfviewer.service.ScanCacheService
 import com.pmd.dfviewer.service.ProgressService
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -14,7 +16,8 @@ import org.springframework.web.bind.annotation.*
 data class ScanRequest(
     val uri: String,
     val maxObjects: Int? = null,
-    val taskId: String
+    val taskId: String,
+    val forceRescan: Boolean = false
 )
 
 data class ImportRequestWithTask(
@@ -31,7 +34,8 @@ class S3Controller(
     private val s3CredentialService: S3CredentialService,
     private val s3ScannerService: S3ScannerService,
     private val s3ImportService: S3ImportService,
-    private val progressService: ProgressService
+    private val progressService: ProgressService,
+    private val scanCacheService: ScanCacheService
 ) {
 
     @PostMapping("/configure")
@@ -50,8 +54,20 @@ class S3Controller(
 
     @PostMapping("/scan")
     fun scan(@RequestBody request: ScanRequest): ResponseEntity<Map<String, String>> {
-        s3ScannerService.scan(request.taskId, request.uri, request.maxObjects)
+        s3ScannerService.scan(request.taskId, request.uri, request.maxObjects, request.forceRescan)
         return ResponseEntity.ok(mapOf("taskId" to request.taskId))
+    }
+
+    @GetMapping("/scan-cache")
+    fun listScanCache(): ResponseEntity<List<ScanCacheEntry>> {
+        return ResponseEntity.ok(scanCacheService.listCached())
+    }
+
+    @GetMapping("/scan-cache/result")
+    fun getCachedResult(@RequestParam uri: String): ResponseEntity<S3ScanResult> {
+        val result = scanCacheService.getCached(uri)
+            ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(result)
     }
 
     @GetMapping("/scan/{taskId}/result")

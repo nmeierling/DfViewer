@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { S3Credentials, S3Status, S3ScanResult, S3ImportRequest, ImportProgress, ScanProgress } from '../models/s3.model';
+import { S3Credentials, S3Status, S3ScanResult, S3ImportRequest, ImportProgress, ScanProgress, ScanCacheEntry } from '../models/s3.model';
 import { WebSocketService } from './websocket.service';
 
 export interface ScanCompleteSummary {
@@ -39,7 +39,17 @@ export class S3Service {
     return this.http.get<S3ScanResult>(`${this.baseUrl}/scan/${taskId}/result`);
   }
 
-  scan(uri: string, maxObjects?: number): Observable<ScanEvent> {
+  getScanCache(): Observable<ScanCacheEntry[]> {
+    return this.http.get<ScanCacheEntry[]>(`${this.baseUrl}/scan-cache`);
+  }
+
+  getCachedResult(uri: string): Observable<S3ScanResult> {
+    return this.http.get<S3ScanResult>(`${this.baseUrl}/scan-cache/result`, {
+      params: { uri }
+    });
+  }
+
+  scan(uri: string, maxObjects?: number, forceRescan: boolean = false): Observable<ScanEvent> {
     return new Observable(observer => {
       const taskId = nextTaskId();
 
@@ -65,7 +75,7 @@ export class S3Service {
         });
 
         console.log(`[S3] Triggering scan, taskId=${taskId}`);
-        this.http.post(`${this.baseUrl}/scan`, { uri, maxObjects, taskId }).subscribe({
+        this.http.post(`${this.baseUrl}/scan`, { uri, maxObjects, taskId, forceRescan }).subscribe({
           error: (err) => {
             console.error('[S3] Scan HTTP error', err);
             unsubscribe();

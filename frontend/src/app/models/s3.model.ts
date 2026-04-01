@@ -1,3 +1,11 @@
+export interface ScanCacheEntry {
+  uri: string;
+  scannedAt: string;
+  fileCount: number;
+  etlGroupCount: number;
+  runCount: number;
+}
+
 export interface S3Credentials {
   accessKeyId: string;
   secretAccessKey: string;

@@ -1,4 +1,4 @@
-import { S3ScanResult, S3FileEntry, ScanProgress, ImportProgress } from '../models/s3.model';
+import { S3ScanResult, S3FileEntry, ScanProgress, ImportProgress, ScanCacheEntry } from '../models/s3.model';
 
 export interface NotificationState {
   message: string;
@@ -13,6 +13,9 @@ export interface S3State {
   region: string;
   tokenExpired: boolean;
   configuring: boolean;
+
+  // Cache
+  scanCacheEntries: ScanCacheEntry[];
 
   // Scan
   scanUri: string;
@@ -38,6 +41,8 @@ export const initialS3State: S3State = {
   region: '',
   tokenExpired: false,
   configuring: false,
+
+  scanCacheEntries: [],
 
   scanUri: localStorage.getItem(LS_SCAN_URI) || '',
   maxObjects: null,

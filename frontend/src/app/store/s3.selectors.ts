@@ -9,6 +9,9 @@ export const selectRegion = createSelector(selectS3, s => s.region);
 export const selectTokenExpired = createSelector(selectS3, s => s.tokenExpired);
 export const selectConfiguring = createSelector(selectS3, s => s.configuring);
 
+// Cache
+export const selectScanCacheEntries = createSelector(selectS3, s => s.scanCacheEntries);
+
 // Scan
 export const selectScanUri = createSelector(selectS3, s => s.scanUri);
 export const selectMaxObjects = createSelector(selectS3, s => s.maxObjects);

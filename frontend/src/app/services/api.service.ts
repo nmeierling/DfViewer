@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Dataset, ColumnInfo, DataPage } from '../models/dataset.model';
+import { Dataset, ColumnInfo, DataPage, ComparisonSummary, ColumnChangeSummary } from '../models/dataset.model';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -52,5 +52,40 @@ export class ApiService {
 
   deleteDataset(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/datasets/${id}`);
+  }
+
+  // Comparison
+  compare(leftId: number, rightId: number, keyColumns: string[], ignoreColumns: string[] = []): Observable<ComparisonSummary> {
+    return this.http.post<ComparisonSummary>(`${this.baseUrl}/compare`, {
+      leftDatasetId: leftId, rightDatasetId: rightId, keyColumns, ignoreColumns
+    });
+  }
+
+  getCompareAdded(leftId: number, rightId: number, page: number = 0, size: number = 100): Observable<DataPage> {
+    return this.http.get<DataPage>(`${this.baseUrl}/compare/${leftId}/${rightId}/added`, {
+      params: new HttpParams().set('page', page).set('size', size)
+    });
+  }
+
+  getCompareRemoved(leftId: number, rightId: number, page: number = 0, size: number = 100): Observable<DataPage> {
+    return this.http.get<DataPage>(`${this.baseUrl}/compare/${leftId}/${rightId}/removed`, {
+      params: new HttpParams().set('page', page).set('size', size)
+    });
+  }
+
+  getCompareChanged(leftId: number, rightId: number, page: number = 0, size: number = 100): Observable<DataPage> {
+    return this.http.get<DataPage>(`${this.baseUrl}/compare/${leftId}/${rightId}/changed`, {
+      params: new HttpParams().set('page', page).set('size', size)
+    });
+  }
+
+  getColumnChanges(leftId: number, rightId: number): Observable<ColumnChangeSummary[]> {
+    return this.http.get<ColumnChangeSummary[]>(`${this.baseUrl}/compare/${leftId}/${rightId}/column-changes`);
+  }
+
+  getColumnChangeData(leftId: number, rightId: number, column: string, page: number = 0, size: number = 100): Observable<DataPage> {
+    return this.http.get<DataPage>(`${this.baseUrl}/compare/${leftId}/${rightId}/column/${encodeURIComponent(column)}`, {
+      params: new HttpParams().set('page', page).set('size', size)
+    });
   }
 }

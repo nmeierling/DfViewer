@@ -19,7 +19,21 @@ export const s3Reducer = createReducer(
     notification: { message: 'AWS credentials expired', detail: 'Please reconfigure', type: 'error' }
   })),
 
+  // Cache
+  on(S3Actions.scanCacheLoaded, (state, { entries }): S3State => ({
+    ...state, scanCacheEntries: entries
+  })),
+
   // Scan
+  on(S3Actions.loadCachedResult, (state, { uri }): S3State => ({
+    ...state,
+    scanUri: uri,
+    scanning: true,
+    scanResult: null,
+    scanProgress: null,
+    flatFiles: [],
+    notification: { message: 'Loading cached scan...', type: 'info', progress: { mode: 'indeterminate' } }
+  })),
   on(S3Actions.startScan, (state, { uri, maxObjects }): S3State => ({
     ...state,
     scanUri: uri,
