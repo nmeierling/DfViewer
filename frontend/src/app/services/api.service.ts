@@ -46,6 +46,10 @@ export class ApiService {
     return this.http.get<DataPage>(`${this.baseUrl}/datasets/${id}/data`, { params });
   }
 
+  getNullColumns(id: number): Observable<string[]> {
+    return this.http.get<string[]>(`${this.baseUrl}/datasets/${id}/null-columns`);
+  }
+
   deleteDataset(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/datasets/${id}`);
   }

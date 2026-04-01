@@ -8,7 +8,7 @@ import { TagModule } from 'primeng/tag';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService } from 'primeng/api';
 import { DatasetActions } from '../../store/dataset.actions';
-import { selectDatasets, selectListLoading } from '../../store/dataset.selectors';
+import { selectDatasets, selectListLoading, selectDuckdbSizeBytes } from '../../store/dataset.selectors';
 import { Dataset } from '../../models/dataset.model';
 
 @Component({
@@ -20,6 +20,12 @@ import { Dataset } from '../../models/dataset.model';
     <div class="dataset-list">
       <div class="title-bar">
         <h2>Datasets</h2>
+        @if (duckdbSize$ | async; as size) {
+          @if (size > 0) {
+            <span class="db-size">DuckDB: {{ formatSize(size) }}</span>
+          }
+        }
+        <div class="spacer"></div>
         <p-button label="Import from S3" icon="pi pi-cloud-download" (onClick)="goToS3()" />
       </div>
       <p-table [value]="(datasets$ | async) ?? []" [loading]="(loading$ | async) ?? false" styleClass="p-datatable-sm p-datatable-striped">
@@ -32,6 +38,7 @@ import { Dataset } from '../../models/dataset.model';
             <th>Entity Path</th>
             <th>Run</th>
             <th>Rows</th>
+            <th>Size</th>
             <th>Imported</th>
             <th>Actions</th>
           </tr>
@@ -47,6 +54,7 @@ import { Dataset } from '../../models/dataset.model';
             <td>{{ ds.entityPath || '-' }}</td>
             <td>{{ ds.runTimestamp || '-' }}</td>
             <td>{{ ds.rowCount | number }}</td>
+            <td>{{ formatSize(ds.sizeBytes) }}</td>
             <td>{{ ds.importedAt | date:'short' }}</td>
             <td>
               <p-button icon="pi pi-eye" [rounded]="true" [text]="true" (onClick)="openDataset(ds)" />
@@ -55,7 +63,7 @@ import { Dataset } from '../../models/dataset.model';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="9" class="text-center">No datasets imported yet.</td></tr>
+          <tr><td colspan="10" class="text-center">No datasets imported yet.</td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -65,7 +73,9 @@ import { Dataset } from '../../models/dataset.model';
     .dataset-link { cursor: pointer; color: var(--p-primary-color); text-decoration: underline; }
     .truncate { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .text-center { text-align: center; }
-    .title-bar { display: flex; align-items: center; justify-content: space-between; }
+    .title-bar { display: flex; align-items: center; gap: 1rem; }
+    .spacer { flex: 1; }
+    .db-size { font-size: 0.85rem; color: var(--p-text-muted-color); padding: 0.25rem 0.75rem; border-radius: 6px; background: var(--p-surface-card); border: 1px solid var(--p-surface-border); }
   `]
 })
 export class DatasetListComponent implements OnInit {
@@ -75,9 +85,11 @@ export class DatasetListComponent implements OnInit {
 
   datasets$ = this.store.select(selectDatasets);
   loading$ = this.store.select(selectListLoading);
+  duckdbSize$ = this.store.select(selectDuckdbSizeBytes);
 
   ngOnInit() {
     this.store.dispatch(DatasetActions.loadDatasets());
+    this.store.dispatch(DatasetActions.loadHealth());
   }
 
   openDataset(ds: Dataset) {
@@ -86,6 +98,13 @@ export class DatasetListComponent implements OnInit {
 
   goToS3() {
     this.router.navigate(['/s3']);
+  }
+
+  formatSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
   }
 
   confirmDelete(ds: Dataset) {

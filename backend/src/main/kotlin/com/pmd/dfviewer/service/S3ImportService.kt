@@ -5,10 +5,11 @@ import com.pmd.dfviewer.model.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
-import software.amazon.awssdk.services.s3.model.HeadObjectRequest
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 @Service
 class S3ImportService(
@@ -19,6 +20,9 @@ class S3ImportService(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val executor = Executors.newCachedThreadPool()
+    private val downloadPool = Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors().coerceIn(4, 16)
+    )
 
     fun importFiles(taskId: String, request: S3ImportRequest) {
         executor.submit {
@@ -44,82 +48,121 @@ class S3ImportService(
         val s3 = s3CredentialService.getClient()
         val datasetId = duckDbService.getNextId()
         val tempDir = File(properties.cacheDir, "tmp/$datasetId").also { it.mkdirs() }
+        val totalFiles = request.files.size
+        val parallelism = downloadPool.let {
+            Runtime.getRuntime().availableProcessors().coerceIn(4, 16)
+        }
+
+        log.info("Import $taskId: downloading $totalFiles files with $parallelism parallel threads")
 
         try {
-            val downloadedFiles = mutableListOf<Pair<File, FileType>>()
-
-            for ((index, fileUri) in request.files.withIndex()) {
-                val (bucket, key) = S3ScannerService.parseS3Uri(fileUri)
-                val fileType = classifyFileType(key)
-                val fileName = key.substringAfterLast('/')
-                val localFile = File(tempDir, fileName)
-
-                val headResponse = s3.headObject(HeadObjectRequest.builder()
-                    .bucket(bucket)
-                    .key(key)
-                    .build())
-                val totalBytes = headResponse.contentLength()
-
-                progressService.sendImportProgress(taskId, ImportProgress(
-                    phase = "downloading",
-                    fileIndex = index + 1,
-                    totalFiles = request.files.size,
-                    fileName = fileName,
-                    bytesDownloaded = 0,
-                    bytesTotal = totalBytes
-                ))
-
-                val getResponse = s3.getObject(GetObjectRequest.builder()
-                    .bucket(bucket)
-                    .key(key)
-                    .build())
-
-                var bytesDownloaded = 0L
-                val buffer = ByteArray(8 * 1024 * 1024)
-                FileOutputStream(localFile).use { fos ->
-                    getResponse.use { input ->
-                        var read: Int
-                        while (input.read(buffer).also { read = it } != -1) {
-                            fos.write(buffer, 0, read)
-                            bytesDownloaded += read
-                            progressService.sendImportProgress(taskId, ImportProgress(
-                                phase = "downloading",
-                                fileIndex = index + 1,
-                                totalFiles = request.files.size,
-                                fileName = fileName,
-                                bytesDownloaded = bytesDownloaded,
-                                bytesTotal = totalBytes
-                            ))
-                        }
-                    }
-                }
-
-                downloadedFiles.add(localFile to fileType)
-                log.info("Import $taskId: downloaded $fileUri (${localFile.length()} bytes)")
-            }
+            // Phase 1: Parallel download
+            val completedCount = AtomicInteger(0)
+            val totalBytesDownloaded = AtomicLong(0)
+            val downloadErrors = mutableListOf<String>()
 
             progressService.sendImportProgress(taskId, ImportProgress(
-                phase = "ingesting",
-                fileIndex = request.files.size,
-                totalFiles = request.files.size,
-                fileName = "Loading into database...",
+                phase = "downloading",
+                fileIndex = 0,
+                totalFiles = totalFiles,
+                fileName = "Starting parallel download ($parallelism threads)...",
                 bytesDownloaded = 0,
                 bytesTotal = 0
             ))
 
-            for ((index, pair) in downloadedFiles.withIndex()) {
-                val (file, fileType) = pair
-                if (index == 0) {
-                    when (fileType) {
-                        FileType.PARQUET -> duckDbService.importParquetFile(file.absolutePath, datasetId)
-                        FileType.CSV -> duckDbService.importCsvFile(file.absolutePath, datasetId)
-                        else -> throw IllegalArgumentException("Unsupported file type: $fileType")
+            val futures = request.files.map { fileUri ->
+                downloadPool.submit<Pair<File, FileType>?> {
+                    try {
+                        val (bucket, key) = S3ScannerService.parseS3Uri(fileUri)
+                        val fileType = classifyFileType(key)
+                        val fileName = key.substringAfterLast('/')
+                        // Use unique name to avoid collisions from same-name files in different paths
+                        val localFile = File(tempDir, "${System.nanoTime()}_$fileName")
+
+                        val getResponse = s3.getObject(GetObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .build())
+
+                        var bytesDownloaded = 0L
+                        val buffer = ByteArray(1024 * 1024)
+                        FileOutputStream(localFile).use { fos ->
+                            getResponse.use { input ->
+                                var read: Int
+                                while (input.read(buffer).also { read = it } != -1) {
+                                    fos.write(buffer, 0, read)
+                                    bytesDownloaded += read
+                                }
+                            }
+                        }
+
+                        val completed = completedCount.incrementAndGet()
+                        totalBytesDownloaded.addAndGet(bytesDownloaded)
+
+                        // Send progress update (throttled — every 10 files or last file)
+                        if (completed % 10 == 0 || completed == totalFiles) {
+                            progressService.sendImportProgress(taskId, ImportProgress(
+                                phase = "downloading",
+                                fileIndex = completed,
+                                totalFiles = totalFiles,
+                                fileName = "$completed / $totalFiles files downloaded",
+                                bytesDownloaded = totalBytesDownloaded.get(),
+                                bytesTotal = 0
+                            ))
+                        }
+
+                        localFile to fileType
+                    } catch (e: Exception) {
+                        synchronized(downloadErrors) {
+                            downloadErrors.add("${fileUri}: ${e.message}")
+                        }
+                        log.error("Import $taskId: failed to download $fileUri", e)
+                        null
                     }
-                } else {
-                    when (fileType) {
-                        FileType.PARQUET -> duckDbService.appendParquetFile(file.absolutePath, datasetId)
-                        FileType.CSV -> duckDbService.appendCsvFile(file.absolutePath, datasetId)
-                        else -> throw IllegalArgumentException("Unsupported file type: $fileType")
+                }
+            }
+
+            // Wait for all downloads to complete
+            val downloadedFiles = futures.mapNotNull { it.get() }
+            val totalSizeBytes = totalBytesDownloaded.get()
+
+            if (downloadedFiles.isEmpty()) {
+                throw RuntimeException("All downloads failed: ${downloadErrors.joinToString("; ")}")
+            }
+
+            if (downloadErrors.isNotEmpty()) {
+                log.warn("Import $taskId: ${downloadErrors.size} files failed to download, proceeding with ${downloadedFiles.size}")
+            }
+
+            log.info("Import $taskId: downloaded ${downloadedFiles.size}/$totalFiles files (${totalSizeBytes / 1024 / 1024} MB)")
+
+            // Phase 2: DuckDB ingestion — use glob for parquet files (much faster than one-by-one)
+            progressService.sendImportProgress(taskId, ImportProgress(
+                phase = "ingesting",
+                fileIndex = totalFiles,
+                totalFiles = totalFiles,
+                fileName = "Loading ${downloadedFiles.size} files into database...",
+                bytesDownloaded = 0,
+                bytesTotal = 0
+            ))
+
+            val parquetFiles = downloadedFiles.filter { it.second == FileType.PARQUET }.map { it.first }
+            val csvFiles = downloadedFiles.filter { it.second == FileType.CSV }.map { it.first }
+
+            if (parquetFiles.isNotEmpty()) {
+                duckDbService.importParquetGlob(tempDir.absolutePath + "/*.parquet", datasetId)
+                // Also handle .snappy.parquet if glob didn't catch them
+                if (parquetFiles.any { it.name.endsWith(".snappy.parquet") } && !parquetFiles.any { it.name.endsWith(".parquet") && !it.name.endsWith(".snappy.parquet") }) {
+                    // All files are .snappy.parquet, glob already covered them via *.parquet
+                }
+            }
+
+            if (csvFiles.isNotEmpty()) {
+                for ((index, file) in csvFiles.withIndex()) {
+                    if (index == 0 && parquetFiles.isEmpty()) {
+                        duckDbService.importCsvFile(file.absolutePath, datasetId)
+                    } else {
+                        duckDbService.appendCsvFile(file.absolutePath, datasetId)
                     }
                 }
             }
@@ -127,10 +170,9 @@ class S3ImportService(
             val schema = duckDbService.getSchema(datasetId)
             val rowCount = duckDbService.getRowCount(datasetId)
 
-            val firstFileType = downloadedFiles.first().second
-            val sourceType = when (firstFileType) {
-                FileType.PARQUET -> SourceType.S3_PARQUET
-                FileType.CSV -> SourceType.S3_CSV
+            val sourceType = when {
+                parquetFiles.isNotEmpty() -> SourceType.S3_PARQUET
+                csvFiles.isNotEmpty() -> SourceType.S3_CSV
                 else -> SourceType.S3_PARQUET
             }
 
@@ -142,13 +184,14 @@ class S3ImportService(
                 entityPath = request.entityPath,
                 runTimestamp = request.runTimestamp,
                 rowCount = rowCount,
+                sizeBytes = totalSizeBytes,
                 schema = schema
             )
 
             progressService.sendImportProgress(taskId, ImportProgress(
                 phase = "done",
-                fileIndex = request.files.size,
-                totalFiles = request.files.size,
+                fileIndex = totalFiles,
+                totalFiles = totalFiles,
                 fileName = "",
                 bytesDownloaded = 0,
                 bytesTotal = 0,
@@ -156,7 +199,8 @@ class S3ImportService(
                 done = true
             ))
 
-            log.info("Import $taskId complete: dataset $datasetId (${request.name}), $rowCount rows")
+            duckDbService.checkpoint()
+            log.info("Import $taskId complete: dataset $datasetId (${request.name}), $rowCount rows, ${totalSizeBytes / 1024 / 1024} MB")
 
         } finally {
             tempDir.deleteRecursively()

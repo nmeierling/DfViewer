@@ -31,6 +31,12 @@ class DatasetController(
         return ResponseEntity.ok(duckDbService.getSchema(id))
     }
 
+    @GetMapping("/{id}/null-columns")
+    fun getNullColumns(@PathVariable id: Long): ResponseEntity<List<String>> {
+        duckDbService.getDataset(id) ?: return ResponseEntity.notFound().build()
+        return ResponseEntity.ok(duckDbService.getNullColumns(id))
+    }
+
     @GetMapping("/{id}/data")
     fun getData(
         @PathVariable id: Long,

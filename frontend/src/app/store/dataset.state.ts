@@ -1,6 +1,9 @@
 import { Dataset, ColumnInfo } from '../models/dataset.model';
 
 export interface DatasetState {
+  // Health
+  duckdbSizeBytes: number;
+
   // List
   datasets: Dataset[];
   listLoading: boolean;
@@ -11,11 +14,15 @@ export interface DatasetState {
   columns: ColumnInfo[];
   rows: Record<string, unknown>[];
   totalRows: number;
+  nullColumns: string[];
   dataLoading: boolean;
+  filtered: boolean;
   error: string;
 }
 
 export const initialDatasetState: DatasetState = {
+  duckdbSizeBytes: 0,
+
   datasets: [],
   listLoading: false,
 
@@ -24,6 +31,8 @@ export const initialDatasetState: DatasetState = {
   columns: [],
   rows: [],
   totalRows: 0,
+  nullColumns: [],
   dataLoading: false,
+  filtered: false,
   error: '',
 };

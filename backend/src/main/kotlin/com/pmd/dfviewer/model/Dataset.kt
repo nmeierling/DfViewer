@@ -11,6 +11,7 @@ data class Dataset(
     val runTimestamp: String?,
     val importedAt: Instant,
     val rowCount: Long,
+    val sizeBytes: Long,
     val schemaJson: String
 )
 

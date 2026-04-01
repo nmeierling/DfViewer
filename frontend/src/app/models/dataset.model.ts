@@ -7,6 +7,7 @@ export interface Dataset {
   runTimestamp?: string;
   importedAt: string;
   rowCount: number;
+  sizeBytes: number;
   schemaJson: string;
 }
 

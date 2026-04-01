@@ -25,7 +25,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     // DuckDB
-    implementation("org.duckdb:duckdb_jdbc:1.2.1")
+    implementation("org.duckdb:duckdb_jdbc:1.5.0.0")
 
     // AWS S3
     implementation("software.amazon.awssdk:s3:2.31.9")

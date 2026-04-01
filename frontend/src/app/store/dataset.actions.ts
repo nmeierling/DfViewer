@@ -4,6 +4,10 @@ import { Dataset, ColumnInfo, DataPage } from '../models/dataset.model';
 export const DatasetActions = createActionGroup({
   source: 'Dataset',
   events: {
+    // Health
+    'Load Health': emptyProps(),
+    'Health Loaded': props<{ duckdbSizeBytes: number }>(),
+
     // List
     'Load Datasets': emptyProps(),
     'Datasets Loaded': props<{ datasets: Dataset[] }>(),
@@ -15,6 +19,7 @@ export const DatasetActions = createActionGroup({
     'Open Dataset': props<{ id: number }>(),
     'Dataset Loaded': props<{ dataset: Dataset }>(),
     'Schema Loaded': props<{ columns: ColumnInfo[] }>(),
+    'Null Columns Loaded': props<{ nullColumns: string[] }>(),
     'Dataset Load Error': props<{ error: string }>(),
 
     // Data

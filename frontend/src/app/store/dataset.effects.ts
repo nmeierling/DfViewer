@@ -13,6 +13,14 @@ export class DatasetEffects {
   private api = inject(ApiService);
   private store = inject(Store);
 
+  loadHealth$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.loadHealth),
+    switchMap(() => this.api.getHealth().pipe(
+      map((res: any) => DatasetActions.healthLoaded({ duckdbSizeBytes: res.duckdbSizeBytes ?? 0 })),
+      catchError(() => of(DatasetActions.healthLoaded({ duckdbSizeBytes: 0 })))
+    ))
+  ));
+
   loadDatasets$ = createEffect(() => this.actions$.pipe(
     ofType(DatasetActions.loadDatasets),
     switchMap(() => this.api.listDatasets().pipe(
@@ -44,6 +52,15 @@ export class DatasetEffects {
       retry({ count: 3, delay: () => timer(1000) }),
       map(columns => DatasetActions.schemaLoaded({ columns })),
       catchError(err => of(DatasetActions.datasetLoadError({ error: 'Failed to load schema' })))
+    ))
+  ));
+
+  loadNullColumns$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.openDataset),
+    switchMap(({ id }) => this.api.getNullColumns(id).pipe(
+      retry({ count: 3, delay: () => timer(1000) }),
+      map(nullColumns => DatasetActions.nullColumnsLoaded({ nullColumns })),
+      catchError(() => of(DatasetActions.nullColumnsLoaded({ nullColumns: [] })))
     ))
   ));
 
