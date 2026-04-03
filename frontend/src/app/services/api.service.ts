@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { Dataset, ColumnInfo, DataPage, ComparisonSummary, ColumnChangeSummary } from '../models/dataset.model';
+import { Dataset, ColumnInfo, DataPage, ComparisonSummary, ColumnChangeSummary, ColumnJoinConfig } from '../models/dataset.model';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -44,6 +44,14 @@ export class ApiService {
     }
 
     return this.http.get<DataPage>(`${this.baseUrl}/datasets/${id}/data`, { params });
+  }
+
+  getColumnJoins(id: number): Observable<ColumnJoinConfig[]> {
+    return this.http.get<ColumnJoinConfig[]>(`${this.baseUrl}/datasets/${id}/column-joins`);
+  }
+
+  setColumnJoins(id: number, joins: ColumnJoinConfig[]): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/datasets/${id}/column-joins`, joins);
   }
 
   getColumnOrder(id: number): Observable<string[]> {

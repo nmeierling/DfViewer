@@ -35,6 +35,14 @@ export interface ColumnChangeSummary {
   changedCount: number;
 }
 
+export interface ColumnJoinConfig {
+  sourceColumn: string;
+  joinDatasetId: number;
+  joinColumn: string;
+  displayTemplate: string;
+  mode: 'replace' | 'add';
+}
+
 export interface DataPage {
   data: Record<string, unknown>[];
   totalRows: number;

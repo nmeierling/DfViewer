@@ -1,4 +1,4 @@
-import { Dataset, ColumnInfo } from '../models/dataset.model';
+import { Dataset, ColumnInfo, ColumnJoinConfig } from '../models/dataset.model';
 
 export interface DatasetState {
   // Health
@@ -18,9 +18,12 @@ export interface DatasetState {
   hiddenColumns: string[];
   columnWidths: Record<string, number>;
   columnOrder: string[];
+  columnJoins: ColumnJoinConfig[];
+  joinsLoaded: boolean;
   dataLoading: boolean;
   filtered: boolean;
   uploading: boolean;
+  uploadDone: boolean;
   error: string;
 }
 
@@ -39,8 +42,11 @@ export const initialDatasetState: DatasetState = {
   hiddenColumns: [],
   columnWidths: {},
   columnOrder: [],
+  columnJoins: [],
+  joinsLoaded: false,
   dataLoading: false,
   filtered: false,
   uploading: false,
+  uploadDone: false,
   error: '',
 };

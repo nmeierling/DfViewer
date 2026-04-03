@@ -1,5 +1,5 @@
 import { createActionGroup, emptyProps, props } from '@ngrx/store';
-import { Dataset, ColumnInfo, DataPage } from '../models/dataset.model';
+import { Dataset, ColumnInfo, DataPage, ColumnJoinConfig } from '../models/dataset.model';
 
 export const DatasetActions = createActionGroup({
   source: 'Dataset',
@@ -31,6 +31,8 @@ export const DatasetActions = createActionGroup({
     'Set Column Widths': props<{ columnWidths: Record<string, number> }>(),
     'Column Order Loaded': props<{ columnOrder: string[] }>(),
     'Set Column Order': props<{ columnOrder: string[] }>(),
+    'Column Joins Loaded': props<{ columnJoins: ColumnJoinConfig[] }>(),
+    'Set Column Joins': props<{ columnJoins: ColumnJoinConfig[] }>(),
     'Dataset Load Error': props<{ error: string }>(),
 
     // Data

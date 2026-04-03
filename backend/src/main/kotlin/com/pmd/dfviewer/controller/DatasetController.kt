@@ -1,6 +1,7 @@
 package com.pmd.dfviewer.controller
 
 import com.pmd.dfviewer.config.DfViewerProperties
+import com.pmd.dfviewer.model.ColumnJoinConfig
 import com.pmd.dfviewer.model.*
 import com.pmd.dfviewer.service.DuckDbService
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -43,6 +44,17 @@ class DatasetController(
     @PutMapping("/{id}/hidden-columns")
     fun setHiddenColumns(@PathVariable id: Long, @RequestBody hiddenColumns: List<String>): ResponseEntity<Void> {
         duckDbService.setHiddenColumns(id, hiddenColumns)
+        return ResponseEntity.noContent().build()
+    }
+
+    @GetMapping("/{id}/column-joins")
+    fun getColumnJoins(@PathVariable id: Long): ResponseEntity<List<ColumnJoinConfig>> {
+        return ResponseEntity.ok(duckDbService.getColumnJoins(id))
+    }
+
+    @PutMapping("/{id}/column-joins")
+    fun setColumnJoins(@PathVariable id: Long, @RequestBody joins: List<ColumnJoinConfig>): ResponseEntity<Void> {
+        duckDbService.setColumnJoins(id, joins)
         return ResponseEntity.noContent().build()
     }
 

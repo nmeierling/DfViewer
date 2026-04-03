@@ -93,7 +93,7 @@ import { EtlRun, EtlRunGroup, ScanCacheEntry } from '../../models/s3.model';
               <h3>ETL Runs (auto-discovered)</h3>
               <div class="filter-controls">
                 <p-multiselect
-                  [options]="allTimestamps"
+                  [options]="(allTimestamps$ | async) ?? []"
                   [(ngModel)]="selectedTimestamps"
                   (ngModelChange)="applyTimestampFilter()"
                   placeholder="Filter by timestamp"
@@ -314,10 +314,10 @@ export class S3BrowserComponent {
   importProgress$ = this.store.select(Sel.selectImportProgress);
   scanUri$ = this.store.select(Sel.selectScanUri);
   scanCacheEntries$ = this.store.select(Sel.selectScanCacheEntries);
+  allTimestamps$ = this.store.select(Sel.selectAllTimestamps);
 
   scanUri = '';
   filteredCacheEntries: ScanCacheEntry[] = [];
-  private allCacheEntries: ScanCacheEntry[] = [];
   selectedCacheEntry: ScanCacheEntry | null = null;
   maxObjects: number | null = null;
   selectedFiles: any[] = [];
@@ -328,9 +328,7 @@ export class S3BrowserComponent {
   allExpanded = false;
 
   // Timestamp filter
-  allTimestamps: string[] = [];
   selectedTimestamps: string[] = [];
-  private allEtlRuns: EtlRunGroup[] = [];
   filteredEtlRuns: EtlRunGroup[] = [];
   filteredRunCount = 0;
 
@@ -341,20 +339,15 @@ export class S3BrowserComponent {
 
   constructor() {
     this.scanUri$.subscribe(uri => this.scanUri = uri);
-    this.scanCacheEntries$.subscribe(entries => this.allCacheEntries = entries);
-    this.store.dispatch(S3Actions.loadScanCache());
+    // Initialize filteredEtlRuns when scan result changes
     this.scanResult$.subscribe(result => {
       if (result) {
-        this.allEtlRuns = result.etlRuns;
-        // Collect all unique timestamps across all groups
-        const tsSet = new Set<string>();
-        result.etlRuns.forEach(g => g.runs.forEach(r => tsSet.add(r.timestamp)));
-        this.allTimestamps = [...tsSet].sort().reverse();
         this.selectedTimestamps = [];
         this.filteredEtlRuns = result.etlRuns;
         this.updateFilteredCount();
       }
     });
+    this.store.dispatch(S3Actions.loadScanCache());
   }
 
   goBack() {
@@ -363,20 +356,22 @@ export class S3BrowserComponent {
 
   filterCache(event: { query: string }) {
     const q = event.query.toLowerCase();
-    this.filteredCacheEntries = this.allCacheEntries.filter(e => e.uri.toLowerCase().includes(q));
+    let entries: ScanCacheEntry[] = [];
+    this.scanCacheEntries$.subscribe(e => entries = e).unsubscribe();
+    this.filteredCacheEntries = entries.filter(e => e.uri.toLowerCase().includes(q));
   }
 
   onInputKeyUp(event: KeyboardEvent) {
     if (event.key !== 'Enter') return;
     const uri = typeof this.scanUri === 'string' ? this.scanUri : (this.scanUri as any)?.uri ?? '';
     if (!uri) return;
-    // Check if there's a cached entry for this URI
-    const cached = this.allCacheEntries.find(e => e.uri === uri);
+    let entries: ScanCacheEntry[] = [];
+    this.scanCacheEntries$.subscribe(e => entries = e).unsubscribe();
+    const cached = entries.find(e => e.uri === uri);
     if (cached) {
       this.scanUri = uri;
       this.selectedCacheEntry = cached;
       this.selectedFiles = [];
-      this.allTimestamps = [];
       this.selectedTimestamps = [];
       this.filteredEtlRuns = [];
       this.store.dispatch(S3Actions.loadCachedResult({ uri }));
@@ -391,7 +386,6 @@ export class S3BrowserComponent {
     this.selectedCacheEntry = entry;
     // Load cached result directly
     this.selectedFiles = [];
-    this.allTimestamps = [];
     this.selectedTimestamps = [];
     this.filteredEtlRuns = [];
     this.store.dispatch(S3Actions.loadCachedResult({ uri: this.scanUri }));
@@ -408,20 +402,21 @@ export class S3BrowserComponent {
     this.scanUri = uri;
     this.selectedCacheEntry = null;
     this.selectedFiles = [];
-    this.allTimestamps = [];
     this.selectedTimestamps = [];
     this.filteredEtlRuns = [];
     this.store.dispatch(S3Actions.startScan({ uri, maxObjects: this.maxObjects ?? undefined, forceRescan }));
   }
 
   applyTimestampFilter() {
+    let allRuns: EtlRunGroup[] = [];
+    this.scanResult$.subscribe(r => { if (r) allRuns = r.etlRuns; }).unsubscribe();
+
     if (this.selectedTimestamps.length === 0) {
-      // No filter = show all
-      this.filteredEtlRuns = this.allEtlRuns;
+      this.filteredEtlRuns = allRuns;
     } else {
       const tsSet = new Set(this.selectedTimestamps);
-      this.filteredEtlRuns = this.allEtlRuns
-        .map(group => ({
+      this.filteredEtlRuns = allRuns
+        .map((group: EtlRunGroup) => ({
           ...group,
           runs: group.runs.filter(r => tsSet.has(r.timestamp))
         }))

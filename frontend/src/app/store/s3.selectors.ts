@@ -20,6 +20,17 @@ export const selectScanProgress = createSelector(selectS3, s => s.scanProgress);
 export const selectScanResult = createSelector(selectS3, s => s.scanResult);
 export const selectFlatFiles = createSelector(selectS3, s => s.flatFiles);
 
+// Derived: all unique timestamps from scan result
+export const selectAllTimestamps = createSelector(
+  selectScanResult,
+  result => {
+    if (!result) return [];
+    const tsSet = new Set<string>();
+    result.etlRuns.forEach(g => g.runs.forEach(r => tsSet.add(r.timestamp)));
+    return [...tsSet].sort().reverse();
+  }
+);
+
 // Import
 export const selectImporting = createSelector(selectS3, s => s.importing);
 export const selectShowImportDialog = createSelector(selectS3, s => s.showImportDialog);

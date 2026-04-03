@@ -2,6 +2,14 @@ package com.pmd.dfviewer.model
 
 import java.time.Instant
 
+data class ColumnJoinConfig(
+    val sourceColumn: String,
+    val joinDatasetId: Long,
+    val joinColumn: String,
+    val displayTemplate: String,  // e.g. "{name} ({code})" — fields from join dataset
+    val mode: String = "replace"  // "replace" or "add"
+)
+
 data class Dataset(
     val id: Long,
     val name: String,

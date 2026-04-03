@@ -13,7 +13,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { FloatLabelModule } from 'primeng/floatlabel';
 import { ConfirmationService } from 'primeng/api';
 import { DatasetActions } from '../../store/dataset.actions';
-import { selectDatasets, selectListLoading, selectDuckdbSizeBytes, selectUploading } from '../../store/dataset.selectors';
+import { selectDatasets, selectListLoading, selectDuckdbSizeBytes, selectUploading, selectUploadDone } from '../../store/dataset.selectors';
 import { Dataset } from '../../models/dataset.model';
 
 @Component({
@@ -160,6 +160,7 @@ export class DatasetListComponent implements OnInit {
   loading$ = this.store.select(selectListLoading);
   duckdbSize$ = this.store.select(selectDuckdbSizeBytes);
   uploading$ = this.store.select(selectUploading);
+  uploadDone$ = this.store.select(selectUploadDone);
 
   showUploadDialog = false;
   uploadFile: File | null = null;
@@ -168,10 +169,9 @@ export class DatasetListComponent implements OnInit {
   private droppedEntryPath: string | null = null;
 
   constructor() {
-    // Close dialog on upload complete
-    this.store.select(selectUploading).subscribe(uploading => {
-      if (!uploading && this.uploadFile) {
-        // Upload just finished
+    // Close dialog when upload completes — single justified subscription for UI side effect
+    this.uploadDone$.subscribe(done => {
+      if (done && this.showUploadDialog) {
         this.showUploadDialog = false;
         this.uploadFile = null;
         this.uploadName = '';

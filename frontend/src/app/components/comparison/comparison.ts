@@ -165,14 +165,14 @@ import { DatasetActions } from '../../store/dataset.actions';
               >
                 <ng-template #header>
                   <tr>
-                    @for (col of addedColumns; track col) {
+                    @for (col of (addedColumns$ | async) ?? []; track col) {
                       <th>{{ col }}</th>
                     }
                   </tr>
                 </ng-template>
                 <ng-template #body let-row>
                   <tr>
-                    @for (col of addedColumns; track col) {
+                    @for (col of (addedColumns$ | async) ?? []; track col) {
                       <td>{{ row[col] }}</td>
                     }
                   </tr>
@@ -195,14 +195,14 @@ import { DatasetActions } from '../../store/dataset.actions';
               >
                 <ng-template #header>
                   <tr>
-                    @for (col of removedColumns; track col) {
+                    @for (col of (removedColumns$ | async) ?? []; track col) {
                       <th>{{ col }}</th>
                     }
                   </tr>
                 </ng-template>
                 <ng-template #body let-row>
                   <tr>
-                    @for (col of removedColumns; track col) {
+                    @for (col of (removedColumns$ | async) ?? []; track col) {
                       <td>{{ row[col] }}</td>
                     }
                   </tr>
@@ -225,8 +225,8 @@ import { DatasetActions } from '../../store/dataset.actions';
               >
                 <ng-template #header>
                   <tr>
-                    @for (col of changedColumns; track col) {
-                      <th [class.key-col]="isKeyColumn(col)" [class.left-col]="col.startsWith('left_')" [class.right-col]="col.startsWith('right_')">
+                    @for (col of (changedColumns$ | async) ?? []; track col) {
+                      <th [class.key-col]="(keyColumnSet$ | async)?.has(col)" [class.left-col]="col.startsWith('left_')" [class.right-col]="col.startsWith('right_')">
                         {{ formatChangedHeader(col) }}
                       </th>
                     }
@@ -234,7 +234,7 @@ import { DatasetActions } from '../../store/dataset.actions';
                 </ng-template>
                 <ng-template #body let-row>
                   <tr>
-                    @for (col of changedColumns; track col) {
+                    @for (col of (changedColumns$ | async) ?? []; track col) {
                       <td [class.changed-cell]="isChangedCell(col, row)">
                         {{ row[col] }}
                       </td>
@@ -282,7 +282,7 @@ import { DatasetActions } from '../../store/dataset.actions';
                     >
                       <ng-template #header>
                         <tr>
-                          @for (h of columnDetailHeaders; track h) {
+                          @for (h of (columnDetailHeaders$ | async) ?? []; track h) {
                             <th [class.left-col]="h.startsWith('left_')" [class.right-col]="h.startsWith('right_')">
                               {{ formatChangedHeader(h) }}
                             </th>
@@ -291,7 +291,7 @@ import { DatasetActions } from '../../store/dataset.actions';
                       </ng-template>
                       <ng-template #body let-row>
                         <tr>
-                          @for (h of columnDetailHeaders; track h) {
+                          @for (h of (columnDetailHeaders$ | async) ?? []; track h) {
                             <td [class.changed-cell]="h.startsWith('left_') || h.startsWith('right_')">
                               {{ row[h] }}
                             </td>
@@ -348,6 +348,7 @@ export class ComparisonComponent implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
+  // All from store — no subscriptions
   datasets$ = this.store.select(selectDatasets);
   leftId$ = this.store.select(Sel.selectLeftDatasetId);
   rightId$ = this.store.select(Sel.selectRightDatasetId);
@@ -368,18 +369,18 @@ export class ComparisonComponent implements OnInit {
   selectedColumn$ = this.store.select(Sel.selectSelectedColumn);
   columnData$ = this.store.select(Sel.selectColumnData);
   columnDataTotal$ = this.store.select(Sel.selectColumnDataTotal);
+  // Derived selectors — replace local vars
+  addedColumns$ = this.store.select(Sel.selectAddedColumns);
+  removedColumns$ = this.store.select(Sel.selectRemovedColumns);
+  changedColumns$ = this.store.select(Sel.selectChangedColumns);
+  columnDetailHeaders$ = this.store.select(Sel.selectColumnDetailHeaders);
+  keyColumnSet$ = this.store.select(Sel.selectKeyColumnSet);
 
   activeTab = 0;
-  addedColumns: string[] = [];
-  removedColumns: string[] = [];
-  changedColumns: string[] = [];
-  columnDetailHeaders: string[] = [];
-  private keyColumnsLocal: string[] = [];
 
   ngOnInit() {
     this.store.dispatch(DatasetActions.loadDatasets());
 
-    // Restore from URL query params if present
     const params = this.route.snapshot.queryParams;
     if (params['left'] && params['right'] && params['keys']) {
       const leftId = +params['left'];
@@ -393,32 +394,8 @@ export class ComparisonComponent implements OnInit {
       if (ignoreColumns.length > 0) {
         this.store.dispatch(CompareActions.setIgnoreColumns({ ignoreColumns }));
       }
-      // Auto-compare after schema loads
       setTimeout(() => this.store.dispatch(CompareActions.runComparison()), 500);
     }
-
-    // Derive column lists from first data load
-    this.addedRows$.subscribe(rows => {
-      if (rows.length > 0 && this.addedColumns.length === 0) {
-        this.addedColumns = Object.keys(rows[0]);
-      }
-    });
-    this.removedRows$.subscribe(rows => {
-      if (rows.length > 0 && this.removedColumns.length === 0) {
-        this.removedColumns = Object.keys(rows[0]);
-      }
-    });
-    this.changedRows$.subscribe(rows => {
-      if (rows.length > 0 && this.changedColumns.length === 0) {
-        this.changedColumns = Object.keys(rows[0]);
-      }
-    });
-    this.keyColumns$.subscribe(kc => this.keyColumnsLocal = kc);
-    this.columnData$.subscribe(rows => {
-      if (rows.length > 0) {
-        this.columnDetailHeaders = Object.keys(rows[0]);
-      }
-    });
   }
 
   goBack() { this.router.navigate(['/']); }
@@ -429,22 +406,16 @@ export class ComparisonComponent implements OnInit {
   setIgnoreColumns(cols: string[]) { this.store.dispatch(CompareActions.setIgnoreColumns({ ignoreColumns: cols })); }
 
   compare() {
-    this.addedColumns = [];
-    this.removedColumns = [];
-    this.changedColumns = [];
-
-    // Encode selection into URL
+    // Read current state for URL encoding via withLatestFrom pattern
     let leftId = 0, rightId = 0, keys: string[] = [], ignore: string[] = [];
-    this.leftId$.subscribe(v => leftId = v || 0).unsubscribe();
-    this.rightId$.subscribe(v => rightId = v || 0).unsubscribe();
-    this.keyColumns$.subscribe(v => keys = v).unsubscribe();
-    this.ignoreColumns$.subscribe(v => ignore = v).unsubscribe();
+    this.store.select(Sel.selectComparison).subscribe(s => {
+      leftId = s.leftDatasetId || 0;
+      rightId = s.rightDatasetId || 0;
+      keys = s.keyColumns;
+      ignore = s.ignoreColumns;
+    }).unsubscribe();
 
-    const queryParams: Record<string, string> = {
-      left: '' + leftId,
-      right: '' + rightId,
-      keys: keys.join(',')
-    };
+    const queryParams: Record<string, string> = { left: '' + leftId, right: '' + rightId, keys: keys.join(',') };
     if (ignore.length > 0) queryParams['ignore'] = ignore.join(',');
     this.router.navigate([], { queryParams, queryParamsHandling: 'replace' });
 
@@ -458,44 +429,32 @@ export class ComparisonComponent implements OnInit {
   }
 
   onAddedPage(event: TableLazyLoadEvent) {
-    const page = event.first !== undefined ? Math.floor(event.first / 100) : 0;
-    this.store.dispatch(CompareActions.loadAdded({ page, size: 100 }));
+    this.store.dispatch(CompareActions.loadAdded({ page: event.first !== undefined ? Math.floor(event.first / 100) : 0, size: 100 }));
   }
 
   onRemovedPage(event: TableLazyLoadEvent) {
-    const page = event.first !== undefined ? Math.floor(event.first / 100) : 0;
-    this.store.dispatch(CompareActions.loadRemoved({ page, size: 100 }));
+    this.store.dispatch(CompareActions.loadRemoved({ page: event.first !== undefined ? Math.floor(event.first / 100) : 0, size: 100 }));
   }
 
   onChangedPage(event: TableLazyLoadEvent) {
-    const page = event.first !== undefined ? Math.floor(event.first / 100) : 0;
-    this.store.dispatch(CompareActions.loadChanged({ page, size: 100 }));
+    this.store.dispatch(CompareActions.loadChanged({ page: event.first !== undefined ? Math.floor(event.first / 100) : 0, size: 100 }));
   }
 
   selectColumn(column: string) {
-    this.columnDetailHeaders = [];
     this.store.dispatch(CompareActions.selectColumn({ column }));
   }
 
   onColumnPage(event: TableLazyLoadEvent) {
     const page = event.first !== undefined ? Math.floor(event.first / 100) : 0;
     let col = '';
-    this.selectedColumn$.subscribe(c => col = c || '').unsubscribe();
-    if (col) {
-      this.store.dispatch(CompareActions.loadColumnPage({ column: col, page, size: 100 }));
-    }
-  }
-
-  isKeyColumn(col: string): boolean {
-    return this.keyColumnsLocal.includes(col);
+    this.store.select(Sel.selectSelectedColumn).subscribe(c => col = c || '').unsubscribe();
+    if (col) this.store.dispatch(CompareActions.loadColumnPage({ column: col, page, size: 100 }));
   }
 
   isChangedCell(col: string, row: Record<string, unknown>): boolean {
     if (!col.startsWith('left_') && !col.startsWith('right_')) return false;
     const baseName = col.replace(/^(left_|right_)/, '');
-    const leftVal = row['left_' + baseName];
-    const rightVal = row['right_' + baseName];
-    return leftVal !== rightVal;
+    return row['left_' + baseName] !== row['right_' + baseName];
   }
 
   formatChangedHeader(col: string): string {

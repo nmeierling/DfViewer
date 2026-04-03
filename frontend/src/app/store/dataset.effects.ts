@@ -1,11 +1,11 @@
 import { inject, Injectable } from '@angular/core';
 import { Actions, createEffect, ofType } from '@ngrx/effects';
 import { Store } from '@ngrx/store';
-import { of, switchMap, map, catchError, withLatestFrom, timer } from 'rxjs';
-import { retry } from 'rxjs/operators';
+import { of, switchMap, map, catchError, withLatestFrom, combineLatest, timer } from 'rxjs';
+import { retry, take, filter } from 'rxjs/operators';
 import { DatasetActions } from './dataset.actions';
 import { ApiService } from '../services/api.service';
-import { selectCurrentDatasetId } from './dataset.selectors';
+import { selectCurrentDatasetId, selectColumns, selectJoinsLoaded } from './dataset.selectors';
 
 @Injectable()
 export class DatasetEffects {
@@ -113,6 +113,31 @@ export class DatasetEffects {
     })
   ), { dispatch: false });
 
+  loadColumnJoins$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.openDataset),
+    switchMap(({ id }) => this.api.getColumnJoins(id).pipe(
+      map(columnJoins => DatasetActions.columnJoinsLoaded({ columnJoins })),
+      catchError(() => of(DatasetActions.columnJoinsLoaded({ columnJoins: [] })))
+    ))
+  ));
+
+  saveColumnJoins$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.setColumnJoins),
+    withLatestFrom(this.store.select(selectCurrentDatasetId)),
+    switchMap(([{ columnJoins }, datasetId]) => {
+      if (!datasetId) return of();
+      return this.api.setColumnJoins(datasetId, columnJoins).pipe(
+        catchError(() => of())
+      );
+    })
+  ), { dispatch: false });
+
+  /** After joins change, reload data to apply the new join */
+  reloadAfterJoinChange$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.setColumnJoins),
+    map(() => DatasetActions.loadData({ page: 0, size: 100 }))
+  ));
+
   loadColumnWidths$ = createEffect(() => this.actions$.pipe(
     ofType(DatasetActions.openDataset),
     switchMap(({ id }) => this.api.getColumnWidths(id).pipe(
@@ -132,10 +157,20 @@ export class DatasetEffects {
     })
   ), { dispatch: false });
 
-  /** After schema loads, auto-fetch first page */
+  /**
+   * Wait for both schema (columns non-empty) AND joins (joinsLoaded=true) before loading data.
+   * Uses combineLatest on store selectors — no action timing issues.
+   */
   autoLoadFirstPage$ = createEffect(() => this.actions$.pipe(
-    ofType(DatasetActions.schemaLoaded),
-    map(() => DatasetActions.loadData({ page: 0, size: 100 }))
+    ofType(DatasetActions.openDataset),
+    switchMap(() => combineLatest([
+      this.store.select(selectColumns),
+      this.store.select(selectJoinsLoaded)
+    ]).pipe(
+      filter(([columns, joinsLoaded]) => columns.length > 0 && joinsLoaded),
+      take(1),
+      map(() => DatasetActions.loadData({ page: 0, size: 100 }))
+    ))
   ));
 
   loadData$ = createEffect(() => this.actions$.pipe(

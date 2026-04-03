@@ -24,3 +24,10 @@ export const selectColumnChanges = createSelector(selectComparison, s => s.colum
 export const selectSelectedColumn = createSelector(selectComparison, s => s.selectedColumn);
 export const selectColumnData = createSelector(selectComparison, s => s.columnData);
 export const selectColumnDataTotal = createSelector(selectComparison, s => s.columnDataTotal);
+
+// Derived selectors — replace local variables in component
+export const selectKeyColumnSet = createSelector(selectKeyColumns, kc => new Set(kc));
+export const selectAddedColumns = createSelector(selectAddedRows, rows => rows.length > 0 ? Object.keys(rows[0]) : []);
+export const selectRemovedColumns = createSelector(selectRemovedRows, rows => rows.length > 0 ? Object.keys(rows[0]) : []);
+export const selectChangedColumns = createSelector(selectChangedRows, rows => rows.length > 0 ? Object.keys(rows[0]) : []);
+export const selectColumnDetailHeaders = createSelector(selectColumnData, rows => rows.length > 0 ? Object.keys(rows[0]) : []);

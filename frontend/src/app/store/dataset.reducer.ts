@@ -25,8 +25,8 @@ export const datasetReducer = createReducer(
   })),
 
   // Upload
-  on(DatasetActions.uploadFile, (state): DatasetState => ({ ...state, uploading: true })),
-  on(DatasetActions.uploadComplete, (state): DatasetState => ({ ...state, uploading: false })),
+  on(DatasetActions.uploadFile, (state): DatasetState => ({ ...state, uploading: true, uploadDone: false })),
+  on(DatasetActions.uploadComplete, (state): DatasetState => ({ ...state, uploading: false, uploadDone: true })),
   on(DatasetActions.uploadError, (state): DatasetState => ({ ...state, uploading: false })),
 
   // View
@@ -41,6 +41,8 @@ export const datasetReducer = createReducer(
     hiddenColumns: [],
     columnWidths: {},
     columnOrder: [],
+    columnJoins: [],
+    joinsLoaded: false,
     dataLoading: true,
     error: ''
   })),
@@ -70,6 +72,12 @@ export const datasetReducer = createReducer(
   })),
   on(DatasetActions.setColumnOrder, (state, { columnOrder }): DatasetState => ({
     ...state, columnOrder
+  })),
+  on(DatasetActions.columnJoinsLoaded, (state, { columnJoins }): DatasetState => ({
+    ...state, columnJoins, joinsLoaded: true
+  })),
+  on(DatasetActions.setColumnJoins, (state, { columnJoins }): DatasetState => ({
+    ...state, columnJoins
   })),
   on(DatasetActions.datasetLoadError, (state, { error }): DatasetState => ({
     ...state, dataLoading: false, error

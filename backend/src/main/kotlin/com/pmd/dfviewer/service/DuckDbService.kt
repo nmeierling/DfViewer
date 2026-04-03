@@ -3,6 +3,7 @@ package com.pmd.dfviewer.service
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.pmd.dfviewer.config.DfViewerProperties
 import com.pmd.dfviewer.model.ColumnInfo
+import com.pmd.dfviewer.model.ColumnJoinConfig
 import com.pmd.dfviewer.model.DataPage
 import com.pmd.dfviewer.model.Dataset
 import com.pmd.dfviewer.model.SourceType
@@ -106,6 +107,7 @@ class DuckDbService(
                 hidden_columns VARCHAR NOT NULL DEFAULT '[]',
                 column_widths VARCHAR NOT NULL DEFAULT '{}',
                 column_order VARCHAR NOT NULL DEFAULT '[]',
+                column_joins VARCHAR NOT NULL DEFAULT '[]',
                 PRIMARY KEY (dataset_id)
             )
         """)
@@ -175,7 +177,7 @@ class DuckDbService(
 
     private fun ensureColumnSettingsRow(datasetId: Long) {
         connection.prepareStatement(
-            "INSERT OR IGNORE INTO column_settings (dataset_id, hidden_columns, column_widths, column_order) VALUES (?, '[]', '{}', '[]')"
+            "INSERT OR IGNORE INTO column_settings (dataset_id, hidden_columns, column_widths, column_order, column_joins) VALUES (?, '[]', '{}', '[]', '[]')"
         ).use { stmt ->
             stmt.setLong(1, datasetId)
             stmt.executeUpdate()
@@ -234,6 +236,37 @@ class DuckDbService(
         ensureColumnSettingsRow(datasetId)
         val json = objectMapper.writeValueAsString(widths)
         connection.prepareStatement("UPDATE column_settings SET column_widths = ? WHERE dataset_id = ?").use { stmt ->
+            stmt.setString(1, json)
+            stmt.setLong(2, datasetId)
+            stmt.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun getColumnJoins(datasetId: Long): List<ColumnJoinConfig> {
+        try {
+            connection.prepareStatement("SELECT column_joins FROM column_settings WHERE dataset_id = ?").use { stmt ->
+                stmt.setLong(1, datasetId)
+                val rs = stmt.executeQuery()
+                if (rs.next()) {
+                    val json = rs.getString("column_joins")
+                    if (json.isNullOrBlank() || json == "[]") return emptyList()
+                    return objectMapper.readValue(json,
+                        objectMapper.typeFactory.constructCollectionType(List::class.java, ColumnJoinConfig::class.java))
+                }
+                return emptyList()
+            }
+        } catch (e: Exception) {
+            log.warn("Failed to read column_joins for dataset $datasetId: ${e.message}")
+            return emptyList()
+        }
+    }
+
+    @Synchronized
+    fun setColumnJoins(datasetId: Long, joins: List<ColumnJoinConfig>) {
+        ensureColumnSettingsRow(datasetId)
+        val json = objectMapper.writeValueAsString(joins)
+        connection.prepareStatement("UPDATE column_settings SET column_joins = ? WHERE dataset_id = ?").use { stmt ->
             stmt.setString(1, json)
             stmt.setLong(2, datasetId)
             stmt.executeUpdate()
@@ -385,26 +418,48 @@ class DuckDbService(
     }
 
     @Synchronized
-    private fun buildWhereClause(filters: Map<String, String>?): String {
+    private fun buildWhereClause(filters: Map<String, String>?, tableAlias: String? = null): String {
+        val prefix = if (tableAlias != null) "$tableAlias." else ""
         val whereClauses = mutableListOf<String>()
         filters?.forEach { (col, value) ->
             val safeCol = col.replace("\"", "\"\"")
             when {
                 value.equals("\$null", ignoreCase = true) ->
-                    whereClauses.add("\"$safeCol\" IS NULL")
+                    whereClauses.add("$prefix\"$safeCol\" IS NULL")
                 value.equals("\$notnull", ignoreCase = true) ->
-                    whereClauses.add("\"$safeCol\" IS NOT NULL")
+                    whereClauses.add("$prefix\"$safeCol\" IS NOT NULL")
                 value.equals("\$empty", ignoreCase = true) ->
-                    whereClauses.add("(\"$safeCol\" IS NULL OR CAST(\"$safeCol\" AS VARCHAR) = '')")
+                    whereClauses.add("($prefix\"$safeCol\" IS NULL OR CAST($prefix\"$safeCol\" AS VARCHAR) = '')")
                 value.equals("\$notempty", ignoreCase = true) ->
-                    whereClauses.add("(\"$safeCol\" IS NOT NULL AND CAST(\"$safeCol\" AS VARCHAR) != '')")
+                    whereClauses.add("($prefix\"$safeCol\" IS NOT NULL AND CAST($prefix\"$safeCol\" AS VARCHAR) != '')")
                 else -> {
                     val safeVal = value.replace("'", "''")
-                    whereClauses.add("CAST(\"$safeCol\" AS VARCHAR) ILIKE '%$safeVal%'")
+                    whereClauses.add("CAST($prefix\"$safeCol\" AS VARCHAR) ILIKE '%$safeVal%'")
                 }
             }
         }
         return if (whereClauses.isNotEmpty()) "WHERE ${whereClauses.joinToString(" AND ")}" else ""
+    }
+
+    private fun buildDisplayExpr(template: String, alias: String): String {
+        // Parse "{field1} ({field2})" -> CONCAT(alias."field1", ' (', alias."field2", ')')
+        val parts = mutableListOf<String>()
+        val regex = Regex("\\{([^}]+)\\}")
+        var lastEnd = 0
+        for (match in regex.findAll(template)) {
+            if (match.range.first > lastEnd) {
+                val literal = template.substring(lastEnd, match.range.first).replace("'", "''")
+                parts.add("'$literal'")
+            }
+            val fieldName = match.groupValues[1].replace("\"", "\"\"")
+            parts.add("CAST($alias.\"$fieldName\" AS VARCHAR)")
+            lastEnd = match.range.last + 1
+        }
+        if (lastEnd < template.length) {
+            val literal = template.substring(lastEnd).replace("'", "''")
+            parts.add("'$literal'")
+        }
+        return if (parts.size == 1) parts[0] else "CONCAT(${parts.joinToString(", ")})"
     }
 
     @Synchronized
@@ -440,7 +495,10 @@ class DuckDbService(
     @Synchronized
     fun queryData(datasetId: Long, page: Int, pageSize: Int, sortColumn: String?, sortDirection: String?, filters: Map<String, String>?): DataPage {
         val tableName = "ds_$datasetId"
-        val whereStr = buildWhereClause(filters)
+        val joins = getColumnJoins(datasetId)
+        val hasJoins = joins.isNotEmpty()
+        val whereStr = if (hasJoins) buildWhereClause(filters, "t") else buildWhereClause(filters)
+        if (hasJoins) log.info("queryData ds_$datasetId: ${joins.size} joins configured")
 
         val orderStr = if (sortColumn != null) {
             val safeCol = sortColumn.replace("\"", "\"\"")
@@ -450,8 +508,35 @@ class DuckDbService(
 
         val offset = page * pageSize
 
-        val countSql = "SELECT COUNT(*) FROM $tableName $whereStr"
-        val dataSql = "SELECT * FROM $tableName $whereStr $orderStr LIMIT $pageSize OFFSET $offset"
+        val countSql: String
+        val dataSql: String
+
+        if (hasJoins) {
+            val joinClauses = StringBuilder()
+            val selectExprs = mutableListOf<String>()
+            selectExprs.add("t.*")
+
+            joins.forEachIndexed { idx, join ->
+                val alias = "j$idx"
+                val joinTable = "ds_${join.joinDatasetId}"
+                val srcCol = join.sourceColumn.replace("\"", "\"\"")
+                val joinCol = join.joinColumn.replace("\"", "\"\"")
+                joinClauses.append(" LEFT JOIN $joinTable $alias ON t.\"$srcCol\" = $alias.\"$joinCol\"")
+
+                val displayExpr = buildDisplayExpr(join.displayTemplate, alias)
+                val displayColName = "${join.sourceColumn}_display"
+                selectExprs.add("$displayExpr AS \"${displayColName.replace("\"", "\"\"")}\"")
+            }
+
+            val fromClause = "$tableName t$joinClauses"
+            val selectStr = selectExprs.joinToString(", ")
+            countSql = "SELECT COUNT(*) FROM $fromClause $whereStr"
+            dataSql = "SELECT $selectStr FROM $fromClause $whereStr $orderStr LIMIT $pageSize OFFSET $offset"
+            log.info("queryData SQL: $dataSql")
+        } else {
+            countSql = "SELECT COUNT(*) FROM $tableName $whereStr"
+            dataSql = "SELECT * FROM $tableName $whereStr $orderStr LIMIT $pageSize OFFSET $offset"
+        }
 
         val totalRows: Long
         connection.createStatement().use { stmt ->
