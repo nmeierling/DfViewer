@@ -70,8 +70,8 @@ export class ApiService {
     return this.http.put<void>(`${this.baseUrl}/datasets/${id}/hidden-columns`, hiddenColumns);
   }
 
-  getDistinctValues(id: number, column: string, filters?: Record<string, string>): Observable<{ value: unknown; count: number }[]> {
-    let params = new HttpParams();
+  getDistinctValues(id: number, column: string, filters?: Record<string, string>, limit: number = 500): Observable<{ value: unknown; count: number }[]> {
+    let params = new HttpParams().set('limit', limit);
     if (filters && Object.keys(filters).length > 0) {
       params = params.set('filters', JSON.stringify(filters));
     }

@@ -222,7 +222,7 @@ import * as Sel from '../../store/dataset.selectors';
             <p>Loading...</p>
           } @else {
             <div class="distinct-summary">
-              <span>{{ distinctValues.length }} unique values</span>
+              <span>{{ distinctValues.length }} unique values @if (distinctValues.length >= distinctLimit) { <span class="distinct-capped" (click)="limitPanel.toggle($event)">(showing top {{ distinctLimit }})</span> }</span>
               <p-button icon="pi pi-copy" [label]="copiedDistinct ? 'Copied!' : 'Copy'" [text]="true" size="small" (onClick)="copyDistinct()" />
             </div>
             <div class="distinct-list">
@@ -236,6 +236,14 @@ import * as Sel from '../../store/dataset.selectors';
           }
         </div>
       </p-dialog>
+
+      <p-popover #limitPanel [style]="{ width: '200px' }">
+        <div class="limit-panel">
+          <label>Max results</label>
+          <input pInputText type="number" [(ngModel)]="distinctLimitInput" (keyup.enter)="applyDistinctLimit(limitPanel)" style="width: 100%" />
+          <p-button label="Apply" size="small" (onClick)="applyDistinctLimit(limitPanel)" [style]="{ width: '100%' }" />
+        </div>
+      </p-popover>
     </div>
   `,
   styles: [`
@@ -288,6 +296,10 @@ import * as Sel from '../../store/dataset.selectors';
     .distinct-row:hover { background: var(--p-surface-hover); }
     .distinct-val { flex: 1; word-break: break-all; }
     .distinct-count { color: var(--p-text-muted-color); margin-left: 1rem; white-space: nowrap; }
+    .distinct-capped { color: var(--p-orange-500); font-weight: 500; cursor: pointer; text-decoration: underline; }
+    .distinct-capped:hover { color: var(--p-orange-700); }
+    .limit-panel { display: flex; flex-direction: column; gap: 0.5rem; }
+    .limit-panel label { font-size: 0.85rem; font-weight: 500; }
     .bubble-container { position: relative; min-height: 30px; margin-bottom: 0.25rem; }
     .name-bubble {
       position: absolute;
@@ -371,6 +383,8 @@ export class DataTableComponent implements OnInit, OnDestroy, AfterViewChecked {
   distinctValues: { value: unknown; count: number }[] = [];
   distinctLoading = false;
   copiedDistinct = false;
+  distinctLimit = 500;
+  distinctLimitInput = 500;
 
   constructor() {
     this.currentDataset$.subscribe(ds => {
@@ -613,7 +627,10 @@ export class DataTableComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (this.filterTimeout) clearTimeout(this.filterTimeout);
     this.filterTimeout = setTimeout(() => {
       this.store.dispatch(DatasetActions.loadData({
-        page: 0, size: this.pageSize, filters: Object.keys(this.filters).length > 0 ? { ...this.filters } : undefined
+        page: 0, size: this.pageSize,
+        sortField: this.currentSort?.field,
+        sortOrder: this.currentSort?.order,
+        filters: Object.keys(this.filters).length > 0 ? { ...this.filters } : undefined
       }));
     }, 400);
   }
@@ -720,17 +737,27 @@ export class DataTableComponent implements OnInit, OnDestroy, AfterViewChecked {
   showDistinct() {
     this.colSettingsPanel.hide();
     this.distinctColName = this.activeColName;
+    this.loadDistinctValues();
+  }
+
+  private loadDistinctValues() {
     this.distinctValues = [];
     this.distinctLoading = true;
     this.showDistinctDialog = true;
     const currentFilters = Object.keys(this.filters).length > 0 ? { ...this.filters } : undefined;
-    this.api.getDistinctValues(this.datasetId, this.activeColName, currentFilters).subscribe({
+    this.api.getDistinctValues(this.datasetId, this.distinctColName, currentFilters, this.distinctLimit).subscribe({
       next: (values) => {
         this.distinctValues = values;
         this.distinctLoading = false;
       },
       error: () => { this.distinctLoading = false; }
     });
+  }
+
+  applyDistinctLimit(panel: any) {
+    panel.hide();
+    this.distinctLimit = this.distinctLimitInput || 500;
+    this.loadDistinctValues();
   }
 
   copyDistinct() {
@@ -752,7 +779,10 @@ export class DataTableComponent implements OnInit, OnDestroy, AfterViewChecked {
       this.filters = { ...this.filters, [this.distinctColName]: '' + value };
     }
     this.store.dispatch(DatasetActions.loadData({
-      page: 0, size: this.pageSize, filters: { ...this.filters }
+      page: 0, size: this.pageSize,
+      sortField: this.currentSort?.field,
+      sortOrder: this.currentSort?.order,
+      filters: { ...this.filters }
     }));
   }
 
