@@ -21,6 +21,17 @@ export class DatasetEffects {
     ))
   ));
 
+  uploadFile$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.uploadFile),
+    switchMap(({ file, name }) => this.api.uploadFile(file, name).pipe(
+      switchMap(res => [
+        DatasetActions.uploadComplete({ datasetId: res.datasetId }),
+        DatasetActions.loadDatasets()
+      ]),
+      catchError(err => of(DatasetActions.uploadError({ error: err.error?.error || err.message || 'Upload failed' })))
+    ))
+  ));
+
   loadDatasets$ = createEffect(() => this.actions$.pipe(
     ofType(DatasetActions.loadDatasets),
     switchMap(() => this.api.listDatasets().pipe(
@@ -63,6 +74,63 @@ export class DatasetEffects {
       catchError(() => of(DatasetActions.nullColumnsLoaded({ nullColumns: [] })))
     ))
   ));
+
+  loadHiddenColumns$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.openDataset),
+    switchMap(({ id }) => this.api.getHiddenColumns(id).pipe(
+      map(hiddenColumns => DatasetActions.hiddenColumnsLoaded({ hiddenColumns })),
+      catchError(() => of(DatasetActions.hiddenColumnsLoaded({ hiddenColumns: [] })))
+    ))
+  ));
+
+  saveHiddenColumns$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.setHiddenColumns),
+    withLatestFrom(this.store.select(selectCurrentDatasetId)),
+    switchMap(([{ hiddenColumns }, datasetId]) => {
+      if (!datasetId) return of();
+      return this.api.setHiddenColumns(datasetId, hiddenColumns).pipe(
+        catchError(() => of())
+      );
+    })
+  ), { dispatch: false });
+
+  loadColumnOrder$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.openDataset),
+    switchMap(({ id }) => this.api.getColumnOrder(id).pipe(
+      map(columnOrder => DatasetActions.columnOrderLoaded({ columnOrder })),
+      catchError(() => of(DatasetActions.columnOrderLoaded({ columnOrder: [] })))
+    ))
+  ));
+
+  saveColumnOrder$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.setColumnOrder),
+    withLatestFrom(this.store.select(selectCurrentDatasetId)),
+    switchMap(([{ columnOrder }, datasetId]) => {
+      if (!datasetId) return of();
+      return this.api.setColumnOrder(datasetId, columnOrder).pipe(
+        catchError(() => of())
+      );
+    })
+  ), { dispatch: false });
+
+  loadColumnWidths$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.openDataset),
+    switchMap(({ id }) => this.api.getColumnWidths(id).pipe(
+      map(columnWidths => DatasetActions.columnWidthsLoaded({ columnWidths })),
+      catchError(() => of(DatasetActions.columnWidthsLoaded({ columnWidths: {} })))
+    ))
+  ));
+
+  saveColumnWidths$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.setColumnWidths),
+    withLatestFrom(this.store.select(selectCurrentDatasetId)),
+    switchMap(([{ columnWidths }, datasetId]) => {
+      if (!datasetId) return of();
+      return this.api.setColumnWidths(datasetId, columnWidths).pipe(
+        catchError(() => of())
+      );
+    })
+  ), { dispatch: false });
 
   /** After schema loads, auto-fetch first page */
   autoLoadFirstPage$ = createEffect(() => this.actions$.pipe(

@@ -15,8 +15,12 @@ export interface DatasetState {
   rows: Record<string, unknown>[];
   totalRows: number;
   nullColumns: string[];
+  hiddenColumns: string[];
+  columnWidths: Record<string, number>;
+  columnOrder: string[];
   dataLoading: boolean;
   filtered: boolean;
+  uploading: boolean;
   error: string;
 }
 
@@ -32,7 +36,11 @@ export const initialDatasetState: DatasetState = {
   rows: [],
   totalRows: 0,
   nullColumns: [],
+  hiddenColumns: [],
+  columnWidths: {},
+  columnOrder: [],
   dataLoading: false,
   filtered: false,
+  uploading: false,
   error: '',
 };

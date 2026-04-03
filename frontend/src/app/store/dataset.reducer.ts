@@ -24,6 +24,11 @@ export const datasetReducer = createReducer(
     ...state, datasets: state.datasets.filter(d => d.id !== id)
   })),
 
+  // Upload
+  on(DatasetActions.uploadFile, (state): DatasetState => ({ ...state, uploading: true })),
+  on(DatasetActions.uploadComplete, (state): DatasetState => ({ ...state, uploading: false })),
+  on(DatasetActions.uploadError, (state): DatasetState => ({ ...state, uploading: false })),
+
   // View
   on(DatasetActions.openDataset, (state, { id }): DatasetState => ({
     ...state,
@@ -32,6 +37,10 @@ export const datasetReducer = createReducer(
     columns: [],
     rows: [],
     totalRows: 0,
+    nullColumns: [],
+    hiddenColumns: [],
+    columnWidths: {},
+    columnOrder: [],
     dataLoading: true,
     error: ''
   })),
@@ -43,6 +52,24 @@ export const datasetReducer = createReducer(
   })),
   on(DatasetActions.nullColumnsLoaded, (state, { nullColumns }): DatasetState => ({
     ...state, nullColumns
+  })),
+  on(DatasetActions.hiddenColumnsLoaded, (state, { hiddenColumns }): DatasetState => ({
+    ...state, hiddenColumns
+  })),
+  on(DatasetActions.setHiddenColumns, (state, { hiddenColumns }): DatasetState => ({
+    ...state, hiddenColumns
+  })),
+  on(DatasetActions.columnWidthsLoaded, (state, { columnWidths }): DatasetState => ({
+    ...state, columnWidths
+  })),
+  on(DatasetActions.setColumnWidths, (state, { columnWidths }): DatasetState => ({
+    ...state, columnWidths
+  })),
+  on(DatasetActions.columnOrderLoaded, (state, { columnOrder }): DatasetState => ({
+    ...state, columnOrder
+  })),
+  on(DatasetActions.setColumnOrder, (state, { columnOrder }): DatasetState => ({
+    ...state, columnOrder
   })),
   on(DatasetActions.datasetLoadError, (state, { error }): DatasetState => ({
     ...state, dataLoading: false, error

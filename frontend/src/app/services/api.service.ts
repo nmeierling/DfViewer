@@ -46,8 +46,49 @@ export class ApiService {
     return this.http.get<DataPage>(`${this.baseUrl}/datasets/${id}/data`, { params });
   }
 
+  getColumnOrder(id: number): Observable<string[]> {
+    return this.http.get<string[]>(`${this.baseUrl}/datasets/${id}/column-order`);
+  }
+
+  setColumnOrder(id: number, columnOrder: string[]): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/datasets/${id}/column-order`, columnOrder);
+  }
+
+  getColumnWidths(id: number): Observable<Record<string, number>> {
+    return this.http.get<Record<string, number>>(`${this.baseUrl}/datasets/${id}/column-widths`);
+  }
+
+  setColumnWidths(id: number, widths: Record<string, number>): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/datasets/${id}/column-widths`, widths);
+  }
+
+  getHiddenColumns(id: number): Observable<string[]> {
+    return this.http.get<string[]>(`${this.baseUrl}/datasets/${id}/hidden-columns`);
+  }
+
+  setHiddenColumns(id: number, hiddenColumns: string[]): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/datasets/${id}/hidden-columns`, hiddenColumns);
+  }
+
+  getDistinctValues(id: number, column: string, filters?: Record<string, string>): Observable<{ value: unknown; count: number }[]> {
+    let params = new HttpParams();
+    if (filters && Object.keys(filters).length > 0) {
+      params = params.set('filters', JSON.stringify(filters));
+    }
+    return this.http.get<{ value: unknown; count: number }[]>(
+      `${this.baseUrl}/datasets/${id}/distinct/${encodeURIComponent(column)}`, { params }
+    );
+  }
+
   getNullColumns(id: number): Observable<string[]> {
     return this.http.get<string[]>(`${this.baseUrl}/datasets/${id}/null-columns`);
+  }
+
+  uploadFile(file: File, name: string): Observable<{ datasetId: number; name: string; rowCount: number }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('name', name);
+    return this.http.post<{ datasetId: number; name: string; rowCount: number }>(`${this.baseUrl}/datasets/upload`, formData);
   }
 
   deleteDataset(id: number): Observable<void> {

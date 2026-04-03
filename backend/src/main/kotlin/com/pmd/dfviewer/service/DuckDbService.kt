@@ -98,9 +98,17 @@ class DuckDbService(
                 schema_json VARCHAR NOT NULL DEFAULT '[]'
             )
         """)
-        // Migration: add size_bytes column if missing (for older DBs)
-        try { executeSQL("ALTER TABLE dataset_registry ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0") } catch (_: Exception) {}
         executeSQL("CREATE SEQUENCE IF NOT EXISTS dataset_id_seq START 1")
+
+        executeSQL("""
+            CREATE TABLE IF NOT EXISTS column_settings (
+                dataset_id INTEGER NOT NULL,
+                hidden_columns VARCHAR NOT NULL DEFAULT '[]',
+                column_widths VARCHAR NOT NULL DEFAULT '{}',
+                column_order VARCHAR NOT NULL DEFAULT '[]',
+                PRIMARY KEY (dataset_id)
+            )
+        """)
     }
 
     private fun executeSQL(sql: String) {
@@ -150,6 +158,85 @@ class DuckDbService(
             val rs = stmt.executeQuery("SELECT nextval('dataset_id_seq')")
             rs.next()
             return rs.getLong(1)
+        }
+    }
+
+    @Synchronized
+    fun getHiddenColumns(datasetId: Long): List<String> {
+        connection.prepareStatement("SELECT hidden_columns FROM column_settings WHERE dataset_id = ?").use { stmt ->
+            stmt.setLong(1, datasetId)
+            val rs = stmt.executeQuery()
+            if (rs.next()) {
+                return objectMapper.readValue(rs.getString("hidden_columns"), List::class.java).map { it.toString() }
+            }
+            return emptyList()
+        }
+    }
+
+    private fun ensureColumnSettingsRow(datasetId: Long) {
+        connection.prepareStatement(
+            "INSERT OR IGNORE INTO column_settings (dataset_id, hidden_columns, column_widths, column_order) VALUES (?, '[]', '{}', '[]')"
+        ).use { stmt ->
+            stmt.setLong(1, datasetId)
+            stmt.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun setHiddenColumns(datasetId: Long, hiddenColumns: List<String>) {
+        ensureColumnSettingsRow(datasetId)
+        val json = objectMapper.writeValueAsString(hiddenColumns)
+        connection.prepareStatement("UPDATE column_settings SET hidden_columns = ? WHERE dataset_id = ?").use { stmt ->
+            stmt.setString(1, json)
+            stmt.setLong(2, datasetId)
+            stmt.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun getColumnOrder(datasetId: Long): List<String> {
+        connection.prepareStatement("SELECT column_order FROM column_settings WHERE dataset_id = ?").use { stmt ->
+            stmt.setLong(1, datasetId)
+            val rs = stmt.executeQuery()
+            if (rs.next()) {
+                return objectMapper.readValue(rs.getString("column_order"), List::class.java).map { it.toString() }
+            }
+            return emptyList()
+        }
+    }
+
+    @Synchronized
+    fun setColumnOrder(datasetId: Long, columnOrder: List<String>) {
+        ensureColumnSettingsRow(datasetId)
+        val json = objectMapper.writeValueAsString(columnOrder)
+        connection.prepareStatement("UPDATE column_settings SET column_order = ? WHERE dataset_id = ?").use { stmt ->
+            stmt.setString(1, json)
+            stmt.setLong(2, datasetId)
+            stmt.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun getColumnWidths(datasetId: Long): Map<String, Int> {
+        connection.prepareStatement("SELECT column_widths FROM column_settings WHERE dataset_id = ?").use { stmt ->
+            stmt.setLong(1, datasetId)
+            val rs = stmt.executeQuery()
+            if (rs.next()) {
+                val json = rs.getString("column_widths")
+                return objectMapper.readValue(json, Map::class.java).map { (k, v) -> k.toString() to (v as Number).toInt() }.toMap()
+            }
+            return emptyMap()
+        }
+    }
+
+    @Synchronized
+    fun setColumnWidths(datasetId: Long, widths: Map<String, Int>) {
+        ensureColumnSettingsRow(datasetId)
+        val json = objectMapper.writeValueAsString(widths)
+        connection.prepareStatement("UPDATE column_settings SET column_widths = ? WHERE dataset_id = ?").use { stmt ->
+            stmt.setString(1, json)
+            stmt.setLong(2, datasetId)
+            stmt.executeUpdate()
         }
     }
 
@@ -298,15 +385,62 @@ class DuckDbService(
     }
 
     @Synchronized
-    fun queryData(datasetId: Long, page: Int, pageSize: Int, sortColumn: String?, sortDirection: String?, filters: Map<String, String>?): DataPage {
-        val tableName = "ds_$datasetId"
+    private fun buildWhereClause(filters: Map<String, String>?): String {
         val whereClauses = mutableListOf<String>()
         filters?.forEach { (col, value) ->
             val safeCol = col.replace("\"", "\"\"")
-            val safeVal = value.replace("'", "''")
-            whereClauses.add("CAST(\"$safeCol\" AS VARCHAR) ILIKE '%$safeVal%'")
+            when {
+                value.equals("\$null", ignoreCase = true) ->
+                    whereClauses.add("\"$safeCol\" IS NULL")
+                value.equals("\$notnull", ignoreCase = true) ->
+                    whereClauses.add("\"$safeCol\" IS NOT NULL")
+                value.equals("\$empty", ignoreCase = true) ->
+                    whereClauses.add("(\"$safeCol\" IS NULL OR CAST(\"$safeCol\" AS VARCHAR) = '')")
+                value.equals("\$notempty", ignoreCase = true) ->
+                    whereClauses.add("(\"$safeCol\" IS NOT NULL AND CAST(\"$safeCol\" AS VARCHAR) != '')")
+                else -> {
+                    val safeVal = value.replace("'", "''")
+                    whereClauses.add("CAST(\"$safeCol\" AS VARCHAR) ILIKE '%$safeVal%'")
+                }
+            }
         }
-        val whereStr = if (whereClauses.isNotEmpty()) "WHERE ${whereClauses.joinToString(" AND ")}" else ""
+        return if (whereClauses.isNotEmpty()) "WHERE ${whereClauses.joinToString(" AND ")}" else ""
+    }
+
+    @Synchronized
+    fun getDistinctValues(datasetId: Long, column: String, filters: Map<String, String>?, limit: Int = 500): List<Map<String, Any?>> {
+        val tableName = "ds_$datasetId"
+        val safeCol = column.replace("\"", "\"\"")
+        val whereStr = buildWhereClause(filters)
+        val sql = """
+            SELECT "\"$safeCol\"" AS value, COUNT(*) AS count
+            FROM $tableName $whereStr
+            GROUP BY "\"$safeCol\""
+            ORDER BY count DESC
+            LIMIT $limit
+        """.trimIndent()
+            .replace("\"\"", "\"") // fix double-escaping from template
+
+        // Build SQL manually to avoid escaping issues
+        val actualSql = "SELECT \"$safeCol\" AS value, COUNT(*) AS count FROM $tableName $whereStr GROUP BY \"$safeCol\" ORDER BY count DESC LIMIT $limit"
+
+        val results = mutableListOf<Map<String, Any?>>()
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery(actualSql)
+            while (rs.next()) {
+                results.add(mapOf(
+                    "value" to rs.getObject("value"),
+                    "count" to rs.getLong("count")
+                ))
+            }
+        }
+        return results
+    }
+
+    @Synchronized
+    fun queryData(datasetId: Long, page: Int, pageSize: Int, sortColumn: String?, sortDirection: String?, filters: Map<String, String>?): DataPage {
+        val tableName = "ds_$datasetId"
+        val whereStr = buildWhereClause(filters)
 
         val orderStr = if (sortColumn != null) {
             val safeCol = sortColumn.replace("\"", "\"\"")
