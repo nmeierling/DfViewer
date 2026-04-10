@@ -102,7 +102,9 @@ export const s3Reducer = createReducer(
   on(S3Actions.importProgress, (state, { progress }): S3State => {
     let notification = state.notification;
     if (progress.phase === 'downloading') {
-      const pct = progress.bytesTotal > 0 ? Math.round(progress.bytesDownloaded / progress.bytesTotal * 100) : 0;
+      const pct = progress.bytesTotal > 0
+        ? Math.round(progress.bytesDownloaded / progress.bytesTotal * 100)
+        : progress.totalFiles > 0 ? Math.round(progress.fileIndex / progress.totalFiles * 100) : 0;
       notification = {
         message: 'Importing...',
         detail: `File ${progress.fileIndex}/${progress.totalFiles}: ${progress.fileName}`,

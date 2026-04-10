@@ -209,12 +209,16 @@ import { EtlRun, EtlRunGroup, ScanCacheEntry } from '../../models/s3.model';
           <div class="progress-info">
             <p><strong>{{ p.phase | titlecase }}</strong></p>
             @if (p.phase === 'downloading') {
-              <p>File {{ p.fileIndex }} / {{ p.totalFiles }}: {{ p.fileName }}</p>
+              <p>{{ p.fileName }}</p>
               <p-progressBar
-                [value]="p.bytesTotal > 0 ? (p.bytesDownloaded / p.bytesTotal * 100) : 0"
+                [value]="importPct(p)"
                 [showValue]="true"
               />
-              <p class="size-text">{{ formatSize(p.bytesDownloaded) }} / {{ formatSize(p.bytesTotal) }}</p>
+              @if (p.bytesTotal > 0) {
+                <p class="size-text">{{ formatSize(p.bytesDownloaded) }} / {{ formatSize(p.bytesTotal) }}</p>
+              } @else {
+                <p class="size-text">{{ p.fileIndex }} / {{ p.totalFiles }} files &middot; {{ formatSize(p.bytesDownloaded) }} downloaded</p>
+              }
             }
             @if (p.phase === 'ingesting') {
               <p>Loading data into database...</p>
@@ -497,6 +501,12 @@ export class S3BrowserComponent {
   openDataset(id: number) {
     this.store.dispatch(S3Actions.dismissImportDialog());
     this.router.navigate(['/datasets', id]);
+  }
+
+  importPct(p: { bytesDownloaded: number; bytesTotal: number; fileIndex: number; totalFiles: number }): number {
+    if (p.bytesTotal > 0) return Math.round(p.bytesDownloaded / p.bytesTotal * 100);
+    if (p.totalFiles > 0) return Math.round(p.fileIndex / p.totalFiles * 100);
+    return 0;
   }
 
   formatSize(bytes: number): string {

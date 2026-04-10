@@ -274,6 +274,40 @@ class DuckDbService(
     }
 
     @Synchronized
+    fun executePagedQuery(countSql: String, dataSql: String, page: Int, pageSize: Int): DataPage {
+        val totalRows: Long
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery(countSql)
+            rs.next()
+            totalRows = rs.getLong(1)
+        }
+        val rows = mutableListOf<Map<String, Any?>>()
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery(dataSql)
+            val meta = rs.metaData
+            val colCount = meta.columnCount
+            while (rs.next()) {
+                val row = linkedMapOf<String, Any?>()
+                for (i in 1..colCount) {
+                    row[meta.getColumnName(i)] = rs.getObject(i)
+                }
+                rows.add(row)
+            }
+        }
+        val totalPages = if (totalRows == 0L) 1 else ((totalRows + pageSize - 1) / pageSize).toInt()
+        return DataPage(data = rows, totalRows = totalRows, page = page, pageSize = pageSize, totalPages = totalPages)
+    }
+
+    @Synchronized
+    fun executeSingleLong(sql: String): Long {
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery(sql)
+            rs.next()
+            return rs.getLong(1)
+        }
+    }
+
+    @Synchronized
     fun importParquetFile(filePath: String, datasetId: Long) {
         val tableName = "ds_$datasetId"
         connection.createStatement().use { stmt ->

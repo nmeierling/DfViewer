@@ -99,8 +99,8 @@ class S3ImportService(
                         val completed = completedCount.incrementAndGet()
                         totalBytesDownloaded.addAndGet(bytesDownloaded)
 
-                        // Send progress update (throttled — every 10 files or last file)
-                        if (completed % 10 == 0 || completed == totalFiles) {
+                        // Send progress update (throttled — every 5 files or last file)
+                        if (completed % 5 == 0 || completed == totalFiles) {
                             progressService.sendImportProgress(taskId, ImportProgress(
                                 phase = "downloading",
                                 fileIndex = completed,

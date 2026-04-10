@@ -67,4 +67,38 @@ class ComparisonController(
     ): ResponseEntity<DataPage> {
         return ResponseEntity.ok(comparisonService.getColumnChangeData(leftId, rightId, column, page, size))
     }
+
+    data class MultiCompareColumnRequest(
+        val leftDatasetId: Long,
+        val rightDatasetIds: List<Long>,
+        val keyColumns: List<String>,
+        val column: String
+    )
+
+    @PostMapping("/multi-column")
+    fun multiCompareColumn(
+        @RequestBody request: MultiCompareColumnRequest,
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "100") size: Int
+    ): ResponseEntity<DataPage> {
+        return ResponseEntity.ok(comparisonService.multiCompareColumn(
+            request.leftDatasetId, request.rightDatasetIds, request.keyColumns, request.column, page, size
+        ))
+    }
+
+    data class MultiCompareColumnsRequest(
+        val leftDatasetId: Long,
+        val rightDatasetIds: List<Long>,
+        val keyColumns: List<String>,
+        val columns: List<String>
+    )
+
+    @PostMapping("/multi-column-summary")
+    fun multiCompareColumnSummary(
+        @RequestBody request: MultiCompareColumnsRequest
+    ): ResponseEntity<List<ColumnChangeSummary>> {
+        return ResponseEntity.ok(comparisonService.multiCompareColumnSummary(
+            request.leftDatasetId, request.rightDatasetIds, request.keyColumns, request.columns
+        ))
+    }
 }

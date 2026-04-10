@@ -173,6 +173,80 @@ class ComparisonService(
         return duckDbService.queryView(viewName, page, size)
     }
 
+    /**
+     * Multi-compare: for a given column, join baseline with all right datasets.
+     * Returns key columns + baseline.col + each right dataset's col, one row per key.
+     */
+    fun multiCompareColumn(
+        leftId: Long, rightIds: List<Long>, keyColumns: List<String>, column: String, page: Int, size: Int
+    ): DataPage {
+        val leftTable = "ds_$leftId"
+        val keyJoinCols = keyColumns.joinToString(", ") { q(it) }
+        val selects = mutableListOf<String>()
+        keyColumns.forEach { selects.add("l.${q(it)}") }
+
+        val leftDs = duckDbService.getDataset(leftId)
+        selects.add("l.${q(column)} AS ${q("baseline (${leftDs?.name ?: leftId})")}")
+
+        val joinClauses = StringBuilder()
+        rightIds.forEachIndexed { idx, rightId ->
+            val alias = "r$idx"
+            val rightDs = duckDbService.getDataset(rightId)
+            val displayName = rightDs?.name ?: "Dataset $rightId"
+            joinClauses.append(" LEFT JOIN ds_$rightId $alias ON ${keyColumns.joinToString(" AND ") { "l.${q(it)} = $alias.${q(it)}" }}")
+            selects.add("$alias.${q(column)} AS ${q(displayName)}")
+        }
+
+        val fromClause = "$leftTable l$joinClauses"
+        val selectStr = selects.joinToString(", ")
+
+        // Only show rows where at least one right dataset differs from baseline
+        val diffCondition = rightIds.mapIndexed { idx, _ ->
+            "l.${q(column)} IS DISTINCT FROM r$idx.${q(column)}"
+        }.joinToString(" OR ")
+        val whereStr = "WHERE $diffCondition"
+
+        val countSql = "SELECT COUNT(*) FROM $fromClause $whereStr"
+        val dataSql = "SELECT $selectStr FROM $fromClause $whereStr ORDER BY ${keyColumns.joinToString(", ") { "l.${q(it)}" }} LIMIT $size OFFSET ${page * size}"
+
+        return duckDbService.executePagedQuery(countSql, dataSql, page, size)
+    }
+
+    /**
+     * Multi-compare summary: for each column, count rows where ANY right dataset differs from baseline.
+     */
+    fun multiCompareColumnSummary(
+        leftId: Long, rightIds: List<Long>, keyColumns: List<String>, columns: List<String>
+    ): List<ColumnChangeSummary> {
+        val leftTable = "ds_$leftId"
+        val results = mutableListOf<ColumnChangeSummary>()
+
+        val joinClauses = StringBuilder()
+        rightIds.forEachIndexed { idx, rightId ->
+            val alias = "r$idx"
+            joinClauses.append(" LEFT JOIN ds_$rightId $alias ON ${keyColumns.joinToString(" AND ") { "l.${q(it)} = $alias.${q(it)}" }}")
+        }
+
+        for (col in columns) {
+            if (keyColumns.contains(col)) continue
+            val conditions = rightIds.mapIndexed { idx, _ ->
+                "l.${q(col)} IS DISTINCT FROM r$idx.${q(col)}"
+            }.joinToString(" OR ")
+
+            val sql = "SELECT COUNT(*) FROM $leftTable l$joinClauses WHERE $conditions"
+            try {
+                val count = duckDbService.executeSingleLong(sql)
+                if (count > 0) {
+                    results.add(ColumnChangeSummary(col, count))
+                }
+            } catch (e: Exception) {
+                log.warn("Failed to count changes for column $col: ${e.message}")
+            }
+        }
+
+        return results.sortedByDescending { it.changedCount }
+    }
+
     private fun q(col: String) = "\"${col.replace("\"", "\"\"")}\""
 
     private fun sanitize(col: String) = col.replace(Regex("[^a-zA-Z0-9_]"), "_").lowercase()

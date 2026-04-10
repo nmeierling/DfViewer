@@ -137,4 +137,16 @@ export class ApiService {
       params: new HttpParams().set('page', page).set('size', size)
     });
   }
+
+  multiCompareColumn(leftId: number, rightIds: number[], keyColumns: string[], column: string, page: number = 0, size: number = 100): Observable<DataPage> {
+    return this.http.post<DataPage>(`${this.baseUrl}/compare/multi-column`, {
+      leftDatasetId: leftId, rightDatasetIds: rightIds, keyColumns, column
+    }, { params: new HttpParams().set('page', page).set('size', size) });
+  }
+
+  multiCompareColumnSummary(leftId: number, rightIds: number[], keyColumns: string[], columns: string[]): Observable<ColumnChangeSummary[]> {
+    return this.http.post<ColumnChangeSummary[]>(`${this.baseUrl}/compare/multi-column-summary`, {
+      leftDatasetId: leftId, rightDatasetIds: rightIds, keyColumns, columns
+    });
+  }
 }
