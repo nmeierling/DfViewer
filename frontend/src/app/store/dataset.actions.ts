@@ -14,9 +14,11 @@ export const DatasetActions = createActionGroup({
     'Datasets Load Error': props<{ error: string }>(),
     'Delete Dataset': props<{ id: number }>(),
     'Dataset Deleted': props<{ id: number }>(),
+    'Rename Dataset': props<{ id: number; name: string }>(),
+    'Dataset Renamed': props<{ id: number; name: string }>(),
 
     // Upload
-    'Upload File': props<{ file: File; name: string }>(),
+    'Upload File': props<{ files: File[]; name: string }>(),
     'Upload Complete': props<{ datasetId: number }>(),
     'Upload Error': props<{ error: string }>(),
 

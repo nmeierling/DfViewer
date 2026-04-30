@@ -324,6 +324,24 @@ class DuckDbService(
     }
 
     @Synchronized
+    fun updateDatasetName(id: Long, name: String) {
+        connection.prepareStatement("UPDATE dataset_registry SET name = ? WHERE id = ?").use { stmt ->
+            stmt.setString(1, name)
+            stmt.setLong(2, id)
+            stmt.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun importParquetFiles(filePaths: List<String>, datasetId: Long) {
+        val tableName = "ds_$datasetId"
+        val list = filePaths.joinToString(",") { "'${it.replace("'", "''")}'" }
+        connection.createStatement().use { stmt ->
+            stmt.execute("CREATE TABLE $tableName AS SELECT * FROM read_parquet([$list], union_by_name=true)")
+        }
+    }
+
+    @Synchronized
     fun importCsvFile(filePath: String, datasetId: Long) {
         val tableName = "ds_$datasetId"
         connection.createStatement().use { stmt ->

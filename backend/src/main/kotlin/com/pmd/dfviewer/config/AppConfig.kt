@@ -11,7 +11,7 @@ class AppConfig : WebMvcConfigurer {
 
     override fun addCorsMappings(registry: CorsRegistry) {
         registry.addMapping("/api/**")
-            .allowedOrigins("http://localhost:4200")
+            .allowedOriginPatterns("http://localhost:*", "http://127.0.0.1:*")
             .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
             .allowedHeaders("*")
     }

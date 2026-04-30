@@ -23,6 +23,11 @@ export const datasetReducer = createReducer(
   on(DatasetActions.datasetDeleted, (state, { id }): DatasetState => ({
     ...state, datasets: state.datasets.filter(d => d.id !== id)
   })),
+  on(DatasetActions.datasetRenamed, (state, { id, name }): DatasetState => ({
+    ...state,
+    datasets: state.datasets.map(d => d.id === id ? { ...d, name } : d),
+    currentDataset: state.currentDataset?.id === id ? { ...state.currentDataset, name } : state.currentDataset
+  })),
 
   // Upload
   on(DatasetActions.uploadFile, (state): DatasetState => ({ ...state, uploading: true, uploadDone: false })),

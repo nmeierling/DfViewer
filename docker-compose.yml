@@ -2,10 +2,11 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8080:8080"
+      - "${BACKEND_HOST_PORT:-8080}:${BACKEND_PORT:-8080}"
     volumes:
       - dfviewer-data:/data
     environment:
+      - SERVER_PORT=${BACKEND_PORT:-8080}
       - DFVIEWER_CACHE_DIR=/data
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
@@ -15,7 +16,10 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "4200:4200"
+      - "${FRONTEND_HOST_PORT:-4200}:${FRONTEND_PORT:-4200}"
+    environment:
+      - FRONTEND_PORT=${FRONTEND_PORT:-4200}
+      - BACKEND_PORT=${BACKEND_PORT:-8080}
     depends_on:
       - backend
 

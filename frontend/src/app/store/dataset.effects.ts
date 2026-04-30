@@ -23,7 +23,7 @@ export class DatasetEffects {
 
   uploadFile$ = createEffect(() => this.actions$.pipe(
     ofType(DatasetActions.uploadFile),
-    switchMap(({ file, name }) => this.api.uploadFile(file, name).pipe(
+    switchMap(({ files, name }) => this.api.uploadFiles(files, name).pipe(
       switchMap(res => [
         DatasetActions.uploadComplete({ datasetId: res.datasetId }),
         DatasetActions.loadDatasets()
@@ -45,6 +45,14 @@ export class DatasetEffects {
     switchMap(({ id }) => this.api.deleteDataset(id).pipe(
       map(() => DatasetActions.datasetDeleted({ id })),
       catchError(() => of(DatasetActions.datasetsLoadError({ error: 'Delete failed' })))
+    ))
+  ));
+
+  renameDataset$ = createEffect(() => this.actions$.pipe(
+    ofType(DatasetActions.renameDataset),
+    switchMap(({ id, name }) => this.api.renameDataset(id, name).pipe(
+      map(() => DatasetActions.datasetRenamed({ id, name })),
+      catchError(err => of(DatasetActions.datasetsLoadError({ error: err.error?.error || 'Rename failed' })))
     ))
   ));
 

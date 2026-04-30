@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.File
+import java.util.zip.ZipInputStream
 
 @RestController
 @RequestMapping("/api/datasets")
@@ -24,7 +25,7 @@ class DatasetController(
     @GetMapping
     fun listDatasets(): List<Dataset> = duckDbService.listDatasets()
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     fun getDataset(@PathVariable id: Long): ResponseEntity<Dataset> {
         val dataset = duckDbService.getDataset(id) ?: return ResponseEntity.notFound().build()
         return ResponseEntity.ok(dataset)
@@ -114,58 +115,131 @@ class DatasetController(
 
     @PostMapping("/upload")
     fun upload(
-        @RequestParam("file") file: MultipartFile,
+        @RequestParam("files") files: List<MultipartFile>,
         @RequestParam("name") name: String
     ): ResponseEntity<Map<String, Any>> {
+        if (files.isEmpty()) {
+            return ResponseEntity.badRequest().body(mapOf("error" to "No files provided" as Any))
+        }
         val datasetId = duckDbService.getNextId()
         val tempDir = File(properties.cacheDir, "tmp/upload_$datasetId").also { it.mkdirs() }
 
         try {
-            val originalName = file.originalFilename ?: "upload"
-            val localFile = File(tempDir, originalName)
-            file.transferTo(localFile)
+            val totalBytes = files.sumOf { it.size }
+            val collected = mutableListOf<File>()
 
-            val isParquet = originalName.lowercase().let { it.endsWith(".parquet") || it.endsWith(".snappy.parquet") }
-            val isCsv = originalName.lowercase().let { it.endsWith(".csv") || it.endsWith(".csv.gz") }
+            files.forEachIndexed { idx, mf ->
+                val origName = mf.originalFilename ?: "upload_$idx"
+                val srcDir = File(tempDir, "src_$idx").also { it.mkdirs() }
+                val saved = File(srcDir, sanitizeFilename(origName))
+                mf.transferTo(saved)
+                if (saved.name.lowercase().endsWith(".zip")) {
+                    extractZipInto(saved, srcDir, collected)
+                    saved.delete()
+                } else if (isSupportedDataFile(saved.name)) {
+                    collected += saved
+                }
+            }
 
-            if (isParquet) {
-                duckDbService.importParquetFile(localFile.absolutePath, datasetId)
-            } else if (isCsv) {
-                duckDbService.importCsvFile(localFile.absolutePath, datasetId)
+            if (collected.isEmpty()) {
+                return ResponseEntity.badRequest().body(mapOf(
+                    "error" to "No supported files found. Accepted: .parquet, .csv, .csv.gz, .zip" as Any
+                ))
+            }
+
+            val parquet = collected.filter {
+                val n = it.name.lowercase(); n.endsWith(".parquet") || n.endsWith(".snappy.parquet")
+            }
+            val csv = collected.filter {
+                val n = it.name.lowercase(); n.endsWith(".csv") || n.endsWith(".csv.gz")
+            }
+
+            if (parquet.isNotEmpty() && csv.isNotEmpty()) {
+                return ResponseEntity.badRequest().body(mapOf(
+                    "error" to "Mixed parquet and csv files in one upload are not supported" as Any
+                ))
+            }
+
+            val sourceType: SourceType
+            val sourceUri: String
+            if (parquet.isNotEmpty()) {
+                duckDbService.importParquetFiles(parquet.map { it.absolutePath }, datasetId)
+                sourceType = SourceType.LOCAL_PARQUET
+                sourceUri = if (parquet.size == 1) "upload://${parquet[0].name}"
+                            else "upload://${parquet.size} parquet files"
             } else {
-                return ResponseEntity.badRequest().body(mapOf("error" to "Unsupported file type. Use .parquet or .csv" as Any))
+                duckDbService.importCsvFile(csv[0].absolutePath, datasetId)
+                csv.drop(1).forEach { duckDbService.appendCsvFile(it.absolutePath, datasetId) }
+                sourceType = SourceType.LOCAL_CSV
+                sourceUri = if (csv.size == 1) "upload://${csv[0].name}"
+                            else "upload://${csv.size} csv files"
             }
 
             val schema = duckDbService.getSchema(datasetId)
             val rowCount = duckDbService.getRowCount(datasetId)
-            val sourceType = if (isParquet) SourceType.LOCAL_PARQUET else SourceType.LOCAL_CSV
 
             duckDbService.registerDataset(
                 id = datasetId,
                 name = name,
-                sourceUri = "upload://$originalName",
+                sourceUri = sourceUri,
                 sourceType = sourceType,
                 entityPath = null,
                 runTimestamp = null,
                 rowCount = rowCount,
-                sizeBytes = file.size,
+                sizeBytes = totalBytes,
                 schema = schema
             )
 
             duckDbService.checkpoint()
-            log.info("Upload complete: dataset $datasetId ($name), $rowCount rows, ${file.size} bytes")
+            log.info("Upload complete: dataset $datasetId ($name), $rowCount rows, $totalBytes bytes, ${collected.size} input file(s)")
 
             return ResponseEntity.ok(mapOf(
                 "datasetId" to datasetId as Any,
                 "name" to name as Any,
-                "rowCount" to rowCount as Any
+                "rowCount" to rowCount as Any,
+                "fileCount" to collected.size as Any
             ))
         } finally {
             tempDir.deleteRecursively()
         }
     }
 
-    @DeleteMapping("/{id}")
+    private fun isSupportedDataFile(name: String): Boolean {
+        val n = name.lowercase()
+        return n.endsWith(".parquet") || n.endsWith(".snappy.parquet") ||
+                n.endsWith(".csv") || n.endsWith(".csv.gz")
+    }
+
+    private fun sanitizeFilename(name: String): String =
+        name.substringAfterLast('/').substringAfterLast('\\').replace("..", "_")
+
+    private fun extractZipInto(zip: File, destDir: File, out: MutableList<File>) {
+        ZipInputStream(zip.inputStream().buffered()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && isSupportedDataFile(entry.name)) {
+                    val safeName = sanitizeFilename(entry.name)
+                    var target = File(destDir, safeName)
+                    if (target.exists()) target = File(destDir, "${System.nanoTime()}_$safeName")
+                    target.outputStream().buffered().use { os -> zis.copyTo(os) }
+                    out += target
+                }
+                entry = zis.nextEntry
+            }
+        }
+    }
+
+    @PutMapping("/{id:\\d+}/name")
+    fun renameDataset(@PathVariable id: Long, @RequestBody body: Map<String, String>): ResponseEntity<Void> {
+        val name = body["name"]?.trim()
+        if (name.isNullOrEmpty()) return ResponseEntity.badRequest().build()
+        duckDbService.getDataset(id) ?: return ResponseEntity.notFound().build()
+        duckDbService.updateDatasetName(id, name)
+        duckDbService.checkpoint()
+        return ResponseEntity.noContent().build()
+    }
+
+    @DeleteMapping("/{id:\\d+}")
     fun deleteDataset(@PathVariable id: Long): ResponseEntity<Void> {
         duckDbService.getDataset(id) ?: return ResponseEntity.notFound().build()
         duckDbService.deleteDataset(id)

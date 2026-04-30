@@ -92,15 +92,19 @@ export class ApiService {
     return this.http.get<string[]>(`${this.baseUrl}/datasets/${id}/null-columns`);
   }
 
-  uploadFile(file: File, name: string): Observable<{ datasetId: number; name: string; rowCount: number }> {
+  uploadFiles(files: File[], name: string): Observable<{ datasetId: number; name: string; rowCount: number; fileCount: number }> {
     const formData = new FormData();
-    formData.append('file', file);
+    for (const f of files) formData.append('files', f, f.name);
     formData.append('name', name);
-    return this.http.post<{ datasetId: number; name: string; rowCount: number }>(`${this.baseUrl}/datasets/upload`, formData);
+    return this.http.post<{ datasetId: number; name: string; rowCount: number; fileCount: number }>(`${this.baseUrl}/datasets/upload`, formData);
   }
 
   deleteDataset(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/datasets/${id}`);
+  }
+
+  renameDataset(id: number, name: string): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/datasets/${id}/name`, { name });
   }
 
   // Comparison

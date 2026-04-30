@@ -10,3 +10,9 @@ The S3 Browser with parallel scanning and downloading of files:
 
 The Compare View to identify changes between similiar datasets:
 <img src="docs/dfviewer2.png" alt="Comparison" width="800"/>
+
+Run:
+
+'''
+BACKEND_PORT=9090 FRONTEND_PORT=5500 BACKEND_HOST_PORT=19090 FRONTEND_HOST_PORT=15500 docker compose up
+'''

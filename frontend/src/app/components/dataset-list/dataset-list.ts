@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -11,6 +11,7 @@ import { DialogModule } from 'primeng/dialog';
 import { FileUploadModule } from 'primeng/fileupload';
 import { InputTextModule } from 'primeng/inputtext';
 import { FloatLabelModule } from 'primeng/floatlabel';
+import { Popover, PopoverModule } from 'primeng/popover';
 import { ConfirmationService } from 'primeng/api';
 import { DatasetActions } from '../../store/dataset.actions';
 import { selectDatasets, selectListLoading, selectDuckdbSizeBytes, selectUploading, selectUploadDone } from '../../store/dataset.selectors';
@@ -21,7 +22,8 @@ import { Dataset } from '../../models/dataset.model';
   standalone: true,
   imports: [
     CommonModule, FormsModule, TableModule, ButtonModule, TagModule,
-    ConfirmDialogModule, DialogModule, FileUploadModule, InputTextModule, FloatLabelModule
+    ConfirmDialogModule, DialogModule, FileUploadModule, InputTextModule, FloatLabelModule,
+    PopoverModule
   ],
   providers: [ConfirmationService],
   template: `
@@ -68,6 +70,7 @@ import { Dataset } from '../../models/dataset.model';
             <td>{{ ds.importedAt | date:'short' }}</td>
             <td>
               <p-button icon="pi pi-eye" [rounded]="true" [text]="true" (onClick)="openDataset(ds)" />
+              <p-button icon="pi pi-pencil" [rounded]="true" [text]="true" (onClick)="openRename($event, ds)" />
               <p-button icon="pi pi-trash" [rounded]="true" [text]="true" severity="danger" (onClick)="confirmDelete(ds)" />
             </td>
           </tr>
@@ -79,8 +82,29 @@ import { Dataset } from '../../models/dataset.model';
     </div>
     <p-confirmDialog />
 
+    <p-popover #renamePopover>
+      <div class="rename-popover">
+        <p-floatlabel>
+          <input
+            #renameInput
+            pInputText
+            id="renameName"
+            [(ngModel)]="renameName"
+            (keydown.enter)="saveRename()"
+            (keydown.escape)="renamePopover.hide()"
+            class="rename-input"
+          />
+          <label for="renameName">Dataset name</label>
+        </p-floatlabel>
+        <div class="rename-actions">
+          <p-button label="Cancel" [text]="true" size="small" (onClick)="renamePopover.hide()" />
+          <p-button label="Save" icon="pi pi-check" size="small" (onClick)="saveRename()" [disabled]="!renameName.trim()" />
+        </div>
+      </div>
+    </p-popover>
+
     <!-- Upload dialog -->
-    <p-dialog header="Upload File" [(visible)]="showUploadDialog" [modal]="true" [style]="{ width: '500px' }">
+    <p-dialog header="Upload Files" [(visible)]="showUploadDialog" [modal]="true" [style]="{ width: '600px' }">
       <div class="upload-dialog">
         <div
           class="drop-zone"
@@ -88,24 +112,39 @@ import { Dataset } from '../../models/dataset.model';
           (dragover)="onDragOver($event)"
           (dragleave)="isDragOver = false"
           (drop)="onDrop($event)"
-          (click)="fileInput.click()"
         >
-          <input #fileInput type="file" accept=".parquet,.csv,.csv.gz" (change)="onFileSelected($event)" hidden />
-          @if (uploadFile) {
-            <div class="file-info">
-              <i class="pi pi-file"></i>
-              <span class="file-name">{{ uploadFile.name }}</span>
-              <span class="file-size">{{ formatSize(uploadFile.size) }}</span>
+          <input #fileInput type="file" accept=".parquet,.csv,.csv.gz,.zip" multiple (change)="onFileSelected($event)" hidden />
+          <input #dirInput type="file" webkitdirectory (change)="onDirSelected($event)" hidden />
+          @if (uploadFiles.length) {
+            <div class="files-info">
+              <i class="pi pi-folder-open"></i>
+              <span><strong>{{ uploadFiles.length }}</strong> file{{ uploadFiles.length === 1 ? '' : 's' }} · {{ formatSize(totalSize) }}</span>
             </div>
+            <ul class="file-list">
+              @for (f of uploadFiles.slice(0, 5); track $index) {
+                <li>{{ fileLabel(f) }} <span class="muted">({{ formatSize(f.size) }})</span></li>
+              }
+              @if (uploadFiles.length > 5) {
+                <li class="muted">…and {{ uploadFiles.length - 5 }} more</li>
+              }
+            </ul>
           } @else {
             <div class="drop-hint">
               <i class="pi pi-cloud-upload" style="font-size: 2rem"></i>
-              <p>Drop a .parquet or .csv file here, or click to browse</p>
+              <p>Drop files or a folder here</p>
+              <p class="muted">.parquet, .csv, .csv.gz, .zip</p>
             </div>
           }
+          <div class="browse-buttons" (click)="$event.stopPropagation()">
+            <p-button label="Choose files" icon="pi pi-file" [outlined]="true" size="small" (onClick)="fileInput.click()" />
+            <p-button label="Choose folder" icon="pi pi-folder" [outlined]="true" size="small" (onClick)="dirInput.click()" />
+            @if (uploadFiles.length) {
+              <p-button label="Clear" icon="pi pi-times" [text]="true" size="small" (onClick)="clearFiles()" />
+            }
+          </div>
         </div>
 
-        @if (uploadFile) {
+        @if (uploadFiles.length) {
           <div class="upload-name">
             <p-floatlabel>
               <input pInputText id="uploadName" [(ngModel)]="uploadName" style="width: 100%" />
@@ -119,7 +158,7 @@ import { Dataset } from '../../models/dataset.model';
             label="Upload"
             icon="pi pi-upload"
             (onClick)="doUpload()"
-            [disabled]="!uploadFile || !uploadName"
+            [disabled]="!uploadFiles.length || !uploadName"
             [loading]="(uploading$ | async) ?? false"
           />
         </div>
@@ -136,19 +175,24 @@ import { Dataset } from '../../models/dataset.model';
     .upload-dialog { display: flex; flex-direction: column; gap: 1rem; }
     .drop-zone {
       border: 2px dashed var(--p-surface-border); border-radius: 8px;
-      padding: 2rem; text-align: center; cursor: pointer;
+      padding: 1.5rem; text-align: center;
       transition: border-color 0.2s, background 0.2s;
     }
-    .drop-zone:hover, .drop-zone.drag-over {
+    .drop-zone.drag-over {
       border-color: var(--p-primary-color); background: var(--p-primary-50);
     }
     .drop-hint { color: var(--p-text-muted-color); }
     .drop-hint p { margin: 0.5rem 0 0; font-size: 0.9rem; }
-    .file-info { display: flex; align-items: center; gap: 0.75rem; justify-content: center; }
-    .file-name { font-weight: 600; }
-    .file-size { color: var(--p-text-muted-color); font-size: 0.85rem; }
+    .files-info { display: flex; align-items: center; gap: 0.75rem; justify-content: center; }
+    .file-list { list-style: none; padding: 0; margin: 0.75rem 0 0; text-align: left; max-height: 160px; overflow: auto; font-size: 0.85rem; }
+    .file-list li { padding: 0.15rem 0; }
+    .muted { color: var(--p-text-muted-color); font-size: 0.85rem; }
+    .browse-buttons { display: flex; justify-content: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
     .upload-name { margin-top: 0.5rem; }
     .upload-footer { display: flex; justify-content: flex-end; }
+    .rename-popover { display: flex; flex-direction: column; gap: 1rem; padding: 0.75rem 0.5rem; min-width: 520px; }
+    .rename-input { width: 100%; font-size: 1rem; padding: 0.65rem 0.75rem; }
+    .rename-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
   `]
 })
 export class DatasetListComponent implements OnInit {
@@ -162,19 +206,22 @@ export class DatasetListComponent implements OnInit {
   uploading$ = this.store.select(selectUploading);
   uploadDone$ = this.store.select(selectUploadDone);
 
+  @ViewChild('renamePopover') renamePopover!: Popover;
+
   showUploadDialog = false;
-  uploadFile: File | null = null;
+  uploadFiles: File[] = [];
   uploadName = '';
+  totalSize = 0;
   isDragOver = false;
-  private droppedEntryPath: string | null = null;
+  renameName = '';
+  private renamingId: number | null = null;
 
   constructor() {
     // Close dialog when upload completes — single justified subscription for UI side effect
     this.uploadDone$.subscribe(done => {
       if (done && this.showUploadDialog) {
         this.showUploadDialog = false;
-        this.uploadFile = null;
-        this.uploadName = '';
+        this.clearFiles();
       }
     });
   }
@@ -203,6 +250,19 @@ export class DatasetListComponent implements OnInit {
     return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
   }
 
+  openRename(event: Event, ds: Dataset) {
+    this.renameName = ds.name;
+    this.renamingId = ds.id;
+    this.renamePopover.toggle(event);
+  }
+
+  saveRename() {
+    const name = this.renameName.trim();
+    if (!name || this.renamingId == null) return;
+    this.store.dispatch(DatasetActions.renameDataset({ id: this.renamingId, name }));
+    this.renamePopover.hide();
+  }
+
   confirmDelete(ds: Dataset) {
     this.confirmationService.confirm({
       message: `Delete dataset "${ds.name}"?`,
@@ -216,8 +276,19 @@ export class DatasetListComponent implements OnInit {
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files?.length) {
-      this.setFile(input.files[0]);
+      this.setFiles(Array.from(input.files));
     }
+    input.value = '';
+  }
+
+  onDirSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      const all = Array.from(input.files);
+      const folderName = (all[0] as any).webkitRelativePath?.split('/')[0] ?? null;
+      this.setFiles(all, folderName);
+    }
+    input.value = '';
   }
 
   onDragOver(event: DragEvent) {
@@ -225,62 +296,93 @@ export class DatasetListComponent implements OnInit {
     this.isDragOver = true;
   }
 
-  onDrop(event: DragEvent) {
+  async onDrop(event: DragEvent) {
     event.preventDefault();
     this.isDragOver = false;
-    if (event.dataTransfer?.files.length) {
-      const file = event.dataTransfer.files[0];
-      // Try to get full path from entry API for folder name extraction
-      const item = event.dataTransfer.items?.[0];
-      const entry = item?.webkitGetAsEntry?.();
-      if (entry) {
-        this.droppedEntryPath = entry.fullPath; // e.g. "/BasePriceList/part-00000-..."
+    const dt = event.dataTransfer;
+    if (!dt) return;
+
+    const items = dt.items;
+    const entries: FileSystemEntry[] = [];
+    if (items?.length) {
+      for (let i = 0; i < items.length; i++) {
+        const entry = (items[i] as any).webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
       }
-      this.setFile(file);
+    }
+
+    if (entries.length) {
+      const collected: File[] = [];
+      for (const entry of entries) await this.collectEntry(entry, collected);
+      const folderName = (entries.length === 1 && entries[0].isDirectory) ? entries[0].name : null;
+      if (collected.length) this.setFiles(collected, folderName);
+    } else if (dt.files.length) {
+      this.setFiles(Array.from(dt.files));
     }
   }
 
-  private setFile(file: File) {
-    this.uploadFile = file;
-    const lastModified = new Date(file.lastModified);
-    const ts = lastModified.toISOString().replace(/[:.]/g, '-').substring(0, 19);
-
-    let displayName = file.name.replace(/\.(snappy\.)?parquet$|\.csv(\.gz)?$/i, '');
-
-    // Detect part-NNNNN-UUID pattern (e.g. part-00000-abcd1234-...-c000)
-    const partPattern = /^part-\d{5}-[0-9a-f]{8}/i;
-    if (partPattern.test(file.name)) {
-      let folderName: string | null = null;
-
-      // Try entry API path from drop event (e.g. "/BasePriceList/part-00000-...")
-      if (this.droppedEntryPath) {
-        const segments = this.droppedEntryPath.split('/').filter(s => s);
-        if (segments.length >= 2) {
-          folderName = segments[segments.length - 2];
-        }
+  private async collectEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+    if (entry.isFile) {
+      const file: File = await new Promise(res => (entry as FileSystemFileEntry).file(res));
+      if (this.isSupported(file.name)) out.push(file);
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      // readEntries returns batches of up to 100 — loop until empty
+      while (true) {
+        const batch: FileSystemEntry[] = await new Promise(res => reader.readEntries(es => res(es)));
+        if (!batch.length) break;
+        for (const child of batch) await this.collectEntry(child, out);
       }
-
-      // Try webkitRelativePath
-      if (!folderName) {
-        const relPath = (file as any).webkitRelativePath as string;
-        if (relPath) {
-          const parts = relPath.split('/');
-          if (parts.length >= 2) {
-            folderName = parts[parts.length - 2];
-          }
-        }
-      }
-
-      displayName = folderName || 'parquet-upload';
     }
+  }
 
-    this.droppedEntryPath = null;
+  private isSupported(name: string): boolean {
+    const n = name.toLowerCase();
+    return n.endsWith('.parquet') || n.endsWith('.snappy.parquet')
+      || n.endsWith('.csv') || n.endsWith('.csv.gz')
+      || n.endsWith('.zip');
+  }
 
+  fileLabel(f: File): string {
+    return (f as any).webkitRelativePath || f.name;
+  }
+
+  clearFiles() {
+    this.uploadFiles = [];
+    this.totalSize = 0;
+    this.uploadName = '';
+  }
+
+  private setFiles(files: File[], folderName: string | null = null) {
+    const filtered = files.filter(f => this.isSupported(f.name));
+    if (!filtered.length) return;
+    this.uploadFiles = filtered;
+    this.totalSize = filtered.reduce((s, f) => s + f.size, 0);
+
+    const ts = new Date(filtered[0].lastModified).toISOString().replace(/[:.]/g, '-').substring(0, 19);
+    let displayName: string;
+    if (folderName) {
+      displayName = folderName;
+    } else if (filtered.length === 1) {
+      const f = filtered[0];
+      displayName = f.name.replace(/\.(snappy\.)?parquet$|\.csv(\.gz)?$|\.zip$/i, '');
+      // part-NNNNN-UUID Spark/parquet shard → use containing folder if known
+      if (/^part-\d{5}-[0-9a-f]{8}/i.test(f.name)) {
+        const rel = (f as any).webkitRelativePath as string | undefined;
+        if (rel) {
+          const parts = rel.split('/');
+          if (parts.length >= 2) displayName = parts[parts.length - 2];
+        }
+      }
+    } else {
+      const rels = filtered.map(f => (f as any).webkitRelativePath as string).filter(Boolean);
+      displayName = rels.length ? rels[0].split('/')[0] : `${filtered.length} files`;
+    }
     this.uploadName = `${displayName} @ ${ts}`;
   }
 
   doUpload() {
-    if (!this.uploadFile || !this.uploadName) return;
-    this.store.dispatch(DatasetActions.uploadFile({ file: this.uploadFile, name: this.uploadName }));
+    if (!this.uploadFiles.length || !this.uploadName) return;
+    this.store.dispatch(DatasetActions.uploadFile({ files: this.uploadFiles, name: this.uploadName }));
   }
 }
