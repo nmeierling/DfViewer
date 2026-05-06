@@ -10,14 +10,14 @@ import { InputTextModule } from 'primeng/inputtext';
 import { MessageModule } from 'primeng/message';
 import { TagModule } from 'primeng/tag';
 import { MultiSelectModule } from 'primeng/multiselect';
-import { PopoverModule } from 'primeng/popover';
+import { Popover, PopoverModule } from 'primeng/popover';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { DatasetActions } from '../../store/dataset.actions';
 import { ApiService } from '../../services/api.service';
 import * as Sel from '../../store/dataset.selectors';
-import { map } from 'rxjs';
+import { map, take } from 'rxjs';
 
 @Component({
   selector: 'app-data-table',
@@ -29,6 +29,24 @@ import { map } from 'rxjs';
       <div class="header">
         <p-button icon="pi pi-arrow-left" label="Back" [text]="true" (onClick)="goBack()" />
         <h2>{{ (currentDataset$ | async)?.name }}</h2>
+        <p-button icon="pi pi-pencil" [rounded]="true" [text]="true" size="small" (onClick)="openRename($event)" />
+        <p-popover #renamePopover>
+          <div class="rename-popover">
+            <input
+              pInputText
+              id="dsRenameName"
+              [(ngModel)]="renameName"
+              (keydown.enter)="saveRename()"
+              (keydown.escape)="renamePopover.hide()"
+              class="rename-input"
+              placeholder="Dataset name"
+            />
+            <div class="rename-actions">
+              <p-button label="Cancel" [text]="true" size="small" (onClick)="renamePopover.hide()" />
+              <p-button label="Save" icon="pi pi-check" size="small" (onClick)="saveRename()" [disabled]="!renameName.trim()" />
+            </div>
+          </div>
+        </p-popover>
         @if (isFiltered$ | async) {
           <span class="row-count">{{ (totalRows$ | async) | number }} / {{ (currentDataset$ | async)?.rowCount | number }} rows</span>
         } @else {
@@ -329,6 +347,9 @@ import { map } from 'rxjs';
   styles: [`
     .header { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
     .header-spacer { flex: 1; }
+    .rename-popover { display: flex; flex-direction: column; gap: 1rem; padding: 0.75rem 0.5rem; min-width: 520px; }
+    .rename-input { width: 100%; font-size: 1rem; padding: 0.65rem 0.75rem; }
+    .rename-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
     .row-count { color: var(--p-text-muted-color); font-size: 0.9rem; }
     .hidden-columns-bar {
       display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
@@ -433,6 +454,7 @@ export class DataTableComponent implements OnInit, OnDestroy {
   private cdr = inject(ChangeDetectorRef);
 
   @ViewChild('colSettingsPanel') colSettingsPanel: any;
+  @ViewChild('renamePopover') renamePopover!: Popover;
 
   // All store selectors — no manual subscriptions
   currentDataset$ = this.store.select(Sel.selectCurrentDataset);
@@ -456,6 +478,7 @@ export class DataTableComponent implements OnInit, OnDestroy {
   pageSize = 100;
   private datasetId!: number;
   filters: Record<string, string> = {};
+  renameName = '';
   private filterTimeout: ReturnType<typeof setTimeout> | null = null;
   dragOverIndex = -1;
   private dragStartIndex = -1;
@@ -804,5 +827,21 @@ export class DataTableComponent implements OnInit, OnDestroy {
 
   goBack() {
     this.router.navigate(['/']);
+  }
+
+  openRename(event: Event) {
+    this.currentDataset$.pipe(take(1)).subscribe(ds => {
+      if (!ds) return;
+      this.renameName = ds.name;
+      this.cdr.markForCheck();
+      this.renamePopover.toggle(event);
+    });
+  }
+
+  saveRename() {
+    const name = this.renameName.trim();
+    if (!name) return;
+    this.store.dispatch(DatasetActions.renameDataset({ id: this.datasetId, name }));
+    this.renamePopover.hide();
   }
 }

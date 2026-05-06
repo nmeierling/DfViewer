@@ -4,6 +4,11 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # No body-size cap — large parquet/csv uploads must pass through.
+    # Backend enforces its own 2GB multipart limit (application.yml).
+    client_max_body_size 0;
+    client_body_timeout 600s;
+
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -12,6 +17,9 @@ server {
         proxy_pass http://backend:${BACKEND_PORT}/api/;
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
     }
 
     location /ws {

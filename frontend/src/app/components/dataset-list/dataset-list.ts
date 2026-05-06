@@ -12,6 +12,8 @@ import { FileUploadModule } from 'primeng/fileupload';
 import { InputTextModule } from 'primeng/inputtext';
 import { FloatLabelModule } from 'primeng/floatlabel';
 import { Popover, PopoverModule } from 'primeng/popover';
+import { ProgressSpinnerModule } from 'primeng/progressspinner';
+import { MessageModule } from 'primeng/message';
 import { ConfirmationService } from 'primeng/api';
 import { DatasetActions } from '../../store/dataset.actions';
 import { selectDatasets, selectListLoading, selectDuckdbSizeBytes, selectUploading, selectUploadDone } from '../../store/dataset.selectors';
@@ -23,7 +25,7 @@ import { Dataset } from '../../models/dataset.model';
   imports: [
     CommonModule, FormsModule, TableModule, ButtonModule, TagModule,
     ConfirmDialogModule, DialogModule, FileUploadModule, InputTextModule, FloatLabelModule,
-    PopoverModule
+    PopoverModule, ProgressSpinnerModule, MessageModule
   ],
   providers: [ConfirmationService],
   template: `
@@ -115,7 +117,12 @@ import { Dataset } from '../../models/dataset.model';
         >
           <input #fileInput type="file" accept=".parquet,.csv,.csv.gz,.zip" multiple (change)="onFileSelected($event)" hidden />
           <input #dirInput type="file" webkitdirectory (change)="onDirSelected($event)" hidden />
-          @if (uploadFiles.length) {
+          @if (scanning) {
+            <div class="scan-state">
+              <p-progressSpinner styleClass="scan-spinner" strokeWidth="4" />
+              <p>Reading files…</p>
+            </div>
+          } @else if (uploadFiles.length) {
             <div class="files-info">
               <i class="pi pi-folder-open"></i>
               <span><strong>{{ uploadFiles.length }}</strong> file{{ uploadFiles.length === 1 ? '' : 's' }} · {{ formatSize(totalSize) }}</span>
@@ -143,6 +150,10 @@ import { Dataset } from '../../models/dataset.model';
             }
           </div>
         </div>
+
+        @if (scanMessage) {
+          <p-message [severity]="scanSeverity" [text]="scanMessage" [closable]="true" (onClose)="scanMessage = ''" styleClass="scan-message" />
+        }
 
         @if (uploadFiles.length) {
           <div class="upload-name">
@@ -183,6 +194,11 @@ import { Dataset } from '../../models/dataset.model';
     }
     .drop-hint { color: var(--p-text-muted-color); }
     .drop-hint p { margin: 0.5rem 0 0; font-size: 0.9rem; }
+    .scan-state { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.5rem; color: var(--p-text-muted-color); }
+    .scan-state p { margin: 0; font-size: 0.9rem; }
+    :host ::ng-deep .scan-spinner { width: 36px; height: 36px; }
+    :host ::ng-deep .scan-spinner .p-progress-spinner-circle { stroke: var(--p-primary-color); }
+    :host ::ng-deep .scan-message { display: block; }
     .files-info { display: flex; align-items: center; gap: 0.75rem; justify-content: center; }
     .file-list { list-style: none; padding: 0; margin: 0.75rem 0 0; text-align: left; max-height: 160px; overflow: auto; font-size: 0.85rem; }
     .file-list li { padding: 0.15rem 0; }
@@ -213,6 +229,9 @@ export class DatasetListComponent implements OnInit {
   uploadName = '';
   totalSize = 0;
   isDragOver = false;
+  scanning = false;
+  scanMessage = '';
+  scanSeverity: 'info' | 'warn' | 'error' | 'success' = 'info';
   renameName = '';
   private renamingId: number | null = null;
 
@@ -222,6 +241,7 @@ export class DatasetListComponent implements OnInit {
       if (done && this.showUploadDialog) {
         this.showUploadDialog = false;
         this.clearFiles();
+        this.scanMessage = '';
       }
     });
   }
@@ -276,6 +296,7 @@ export class DatasetListComponent implements OnInit {
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files?.length) {
+      this.scanMessage = '';
       this.setFiles(Array.from(input.files));
     }
     input.value = '';
@@ -284,6 +305,7 @@ export class DatasetListComponent implements OnInit {
   onDirSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files?.length) {
+      this.scanMessage = '';
       const all = Array.from(input.files);
       const folderName = (all[0] as any).webkitRelativePath?.split('/')[0] ?? null;
       this.setFiles(all, folderName);
@@ -312,28 +334,78 @@ export class DatasetListComponent implements OnInit {
     }
 
     if (entries.length) {
+      this.scanning = true;
+      this.scanMessage = '';
+      this.uploadFiles = [];
+      this.totalSize = 0;
       const collected: File[] = [];
-      for (const entry of entries) await this.collectEntry(entry, collected);
+      const stats = { skipped: 0, errors: 0 };
+      try {
+        for (const entry of entries) await this.collectEntry(entry, collected, stats);
+      } finally {
+        this.scanning = false;
+      }
       const folderName = (entries.length === 1 && entries[0].isDirectory) ? entries[0].name : null;
-      if (collected.length) this.setFiles(collected, folderName);
+      if (collected.length) {
+        this.setFiles(collected, folderName);
+        this.reportScan(stats);
+      } else if (stats.errors) {
+        this.setScanMessage('error',
+          `Could not read ${stats.errors} item${stats.errors > 1 ? 's' : ''}. Check folder permissions.`);
+      } else {
+        this.setScanMessage('info',
+          'No supported files found. Accepted: .parquet, .csv, .csv.gz, .zip');
+      }
     } else if (dt.files.length) {
+      this.scanMessage = '';
       this.setFiles(Array.from(dt.files));
+    } else {
+      this.setScanMessage('info', 'Nothing was dropped.');
     }
   }
 
-  private async collectEntry(entry: FileSystemEntry, out: File[]): Promise<void> {
+  private async collectEntry(
+    entry: FileSystemEntry,
+    out: File[],
+    stats: { skipped: number; errors: number }
+  ): Promise<void> {
     if (entry.isFile) {
-      const file: File = await new Promise(res => (entry as FileSystemFileEntry).file(res));
-      if (this.isSupported(file.name)) out.push(file);
+      try {
+        const file: File = await new Promise<File>((resolve, reject) =>
+          (entry as FileSystemFileEntry).file(resolve, reject)
+        );
+        if (this.isSupported(file.name)) out.push(file);
+        else stats.skipped++;
+      } catch {
+        stats.errors++;
+      }
     } else if (entry.isDirectory) {
-      const reader = (entry as FileSystemDirectoryEntry).createReader();
-      // readEntries returns batches of up to 100 — loop until empty
-      while (true) {
-        const batch: FileSystemEntry[] = await new Promise(res => reader.readEntries(es => res(es)));
-        if (!batch.length) break;
-        for (const child of batch) await this.collectEntry(child, out);
+      try {
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        // readEntries returns batches of up to 100 — loop until empty
+        while (true) {
+          const batch: FileSystemEntry[] = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+            reader.readEntries(resolve, reject)
+          );
+          if (!batch.length) break;
+          for (const child of batch) await this.collectEntry(child, out, stats);
+        }
+      } catch {
+        stats.errors++;
       }
     }
+  }
+
+  private reportScan(stats: { skipped: number; errors: number }) {
+    const parts: string[] = [];
+    if (stats.skipped) parts.push(`${stats.skipped} unsupported file${stats.skipped > 1 ? 's' : ''} skipped`);
+    if (stats.errors) parts.push(`${stats.errors} item${stats.errors > 1 ? 's' : ''} could not be read`);
+    if (parts.length) this.setScanMessage(stats.errors ? 'warn' : 'info', parts.join(' · '));
+  }
+
+  private setScanMessage(severity: 'info' | 'warn' | 'error', text: string) {
+    this.scanSeverity = severity;
+    this.scanMessage = text;
   }
 
   private isSupported(name: string): boolean {
@@ -351,11 +423,19 @@ export class DatasetListComponent implements OnInit {
     this.uploadFiles = [];
     this.totalSize = 0;
     this.uploadName = '';
+    this.scanMessage = '';
   }
 
   private setFiles(files: File[], folderName: string | null = null) {
     const filtered = files.filter(f => this.isSupported(f.name));
-    if (!filtered.length) return;
+    const skipped = files.length - filtered.length;
+    if (!filtered.length) {
+      this.setScanMessage('info', 'No supported files found. Accepted: .parquet, .csv, .csv.gz, .zip');
+      return;
+    }
+    if (skipped > 0) {
+      this.setScanMessage('info', `Skipped ${skipped} unsupported file${skipped > 1 ? 's' : ''}.`);
+    }
     this.uploadFiles = filtered;
     this.totalSize = filtered.reduce((s, f) => s + f.size, 0);
 
